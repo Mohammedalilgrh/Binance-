@@ -309,6 +309,6 @@ def index():
 # ------------------- Main Entrypoint -------------------
 if __name__ == "__main__":
     # Set webhook URL (do this once, or via Render Dashboard)
-    # bot.set_webhook("https://your-app.onrender.com/" + BOT_TOKEN)
+    # bot.set_webhook("https://binance-bql7.onrender.com" + BOT_TOKEN)
     # Run Flask app
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
