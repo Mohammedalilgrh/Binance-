@@ -1,0 +1,5 @@
+pip install 
+python-telegram-bot 
+flask python-binance 
+mplfinance matplotlib 
+pandas pytz
