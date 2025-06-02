@@ -28,7 +28,7 @@ RETRY_DELAY = 5
 
 # Fallback to official Binance API if proxy fails
 BINANCE_API_BASE = 'https://api.binance.com/api/v3'
-BINANCE_PROXY = 'https://binance-bql7.onrender.com'
+BINANCE_PROXY = 'https://binance-vv7y.onrender.com'
 
 app = Flask(__name__)
 candles_data = {symbol: pd.DataFrame() for symbol in SYMBOLS}
