@@ -1,5 +1,5 @@
-flask
-python-telegram-bot
-python-binance
+Flask
 pandas
 numpy
+requests
+gunicorn
