@@ -1,5 +1,5 @@
-Flask
-pandas
-numpy
-requests
-gunicorn
+flask==2.3.2
+pandas==2.0.3
+numpy==1.24.3
+requests==2.31.0
+python-dotenv==1.0.0
