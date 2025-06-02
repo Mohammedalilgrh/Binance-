@@ -18,7 +18,7 @@ SYMBOLS = [
     "GMTUSDT", "ADAUSDT", "OSMOUSDT"
 ]
 INTERVAL = '1m'
-LOOKBACK = 10000  # Store last 10000 candles
+LOOKBACK = 5000  # Store last 10000 candles
 
 app = Flask(__name__)
 
