@@ -1,19 +1,17 @@
 import os
-from flask import Flask, request
-from binance.client import Client
-from datetime import datetime, timedelta
-import pytz
-from threading import Thread
 import time
-import requests
+import threading
+from datetime import datetime
+from flask import Flask
 
+from binance.client import Client
 from telegram import Bot
 
-# =================== Config ===================
-BINANCE_API_KEY = os.environ.get("BINANCE_API_KEY", "cVRnAxc6nrVHQ6sbaAQNcrznHhOO7PcVZYlsES8Y75r34VJbYjQDfUTNcC8T2Fct")
-BINANCE_API_SECRET = os.environ.get("BINANCE_API_SECRET", "GEYh2ck82RcaDTaHjbLafYWBLqkAMw90plNSkfmhrvVbAFcowBxcst4L3u0hBLfC")
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7970489926:AAGjDmazd_EXkdT1cv8Lh8aNGZ1hPlkbcJg")
-TELEGRAM_CHANNEL = os.environ.get("TELEGRAM_CHANNEL", "@tradegrh")  # Use channel username or chat id
+# =================== CONFIG ===================
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "cVRnAxc6nrVHQ6sbaAQNcrznHhOO7PcVZYlsES8Y75r34VJbYjQDfUTNcC8T2Fct")
+BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "GEYh2ck82RcaDTaHjbLafYWBLqkAMw90plNSkfmhrvVbAFcowBxcst4L3u0hBLfC")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "7970489926:AAGjDmazd_EXkdT1cv8Lh8aNGZ1hPlkbcJg")
+TELEGRAM_CHANNEL = os.getenv("TELEGRAM_CHANNEL", "@tradegrh")
 
 SYMBOLS = [
     "BTCUSDT", "SHIBUSDT", "DOGEUSDT", "XRPUSDT", "BTTCUSDT",
@@ -23,20 +21,15 @@ SYMBOLS = [
 ]
 CANDLE_LIMIT = 5000
 
-# =================== Flask ===================
+# =================== INIT ===================
 app = Flask(__name__)
-
-# =================== Binance ===================
 binance = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
-
-# =================== Telegram ===================
 bot = Bot(TELEGRAM_BOT_TOKEN)
 
-# =================== In-Memory Candle Cache ===================
 candle_cache = {symbol: [] for symbol in SYMBOLS}
 last_signal_sent = {symbol: None for symbol in SYMBOLS}
 
-# =================== Utilities ===================
+# =================== MARKET STRUCTURE ===================
 def fetch_klines(symbol, interval="1m", limit=CANDLE_LIMIT):
     try:
         klines = binance.get_klines(symbol=symbol, interval=interval, limit=limit)
@@ -55,7 +48,6 @@ def fetch_klines(symbol, interval="1m", limit=CANDLE_LIMIT):
         print(f"[{symbol}] Error fetching klines: {e}")
         return []
 
-# =============== Market Structure Detection ===============
 def detect_bos(klines, lookback=20):
     if len(klines) < lookback + 2:
         return None
@@ -77,10 +69,8 @@ def detect_choch(klines, lookback=7):
     lows = [k['low'] for k in klines[-lookback-1:-1]]
     prev_high = max(highs[:-2])
     prev_low = min(lows[:-2])
-    # Bearish CHoCH
     if (klines[-2]['close'] > prev_high and klines[-1]['close'] < klines[-2]['low']):
         return {'type': 'bear', 'level': klines[-2]['low']}
-    # Bullish CHoCH
     elif (klines[-2]['close'] < prev_low and klines[-1]['close'] > klines[-2]['high']):
         return {'type': 'bull', 'level': klines[-2]['high']}
     return None
@@ -105,10 +95,8 @@ def detect_fvg(klines):
     for i in range(2, len(klines)):
         prev = klines[i-2]
         curr = klines[i]
-        # Bull FVG
         if curr['low'] > prev['high']:
             fvgs.append({'type':'bull', 'zone': (prev['high'], curr['low']), 'index': i})
-        # Bear FVG
         if curr['high'] < prev['low']:
             fvgs.append({'type':'bear', 'zone': (curr['high'], prev['low']), 'index': i})
     return fvgs[-2:] if fvgs else []
@@ -126,13 +114,11 @@ def fibo_levels(high, low):
         '1.618': high - diff * 1.618,
     }
 
-# =============== Signal Generation & Formatting ===============
 def analyze(symbol, klines):
     bos = detect_bos(klines)
     choch = detect_choch(klines)
     obs = detect_order_blocks(klines)
     fvgs = detect_fvg(klines)
-    # Fibo on last 40 bars
     recent_high = max(k['high'] for k in klines[-40:])
     recent_low = min(k['low'] for k in klines[-40:])
     fib = fibo_levels(recent_high, recent_low)
@@ -150,7 +136,6 @@ def analyze(symbol, klines):
     return msg
 
 def should_send(symbol, msg):
-    # Prevent duplicate signals
     if last_signal_sent[symbol] != msg:
         last_signal_sent[symbol] = msg
         return True
@@ -167,7 +152,6 @@ def send_signal(symbol, msg):
     except Exception as e:
         print(f"[{symbol}] Telegram send error: {e}")
 
-# =============== Main Loop ===============
 def update_and_signal():
     while True:
         for symbol in SYMBOLS:
@@ -177,9 +161,9 @@ def update_and_signal():
                 msg = analyze(symbol, candle_cache[symbol])
                 if should_send(symbol, msg):
                     send_signal(symbol, msg)
-        time.sleep(60)  # every minute
+        time.sleep(60)
 
-# =============== Flask Webhook Endpoint ===============
+# =================== FLASK APP ===================
 @app.route('/')
 def index():
     return "Institutional Sniper Bot (Binance 1m) is running!"
@@ -188,9 +172,6 @@ def index():
 def healthz():
     return "ok"
 
-# =============== Start Background Task ===============
 if __name__ == '__main__':
-    # Start the background signal loop in a thread
-    Thread(target=update_and_signal, daemon=True).start()
-    # Run Flask app (for Render/Heroku web dyno)
+    threading.Thread(target=update_and_signal, daemon=True).start()
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
