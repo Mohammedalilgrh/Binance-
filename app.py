@@ -1,189 +1,196 @@
 import os
-import threading
-import time
-import logging
-from datetime import datetime
-
 from flask import Flask, request
-import pandas as pd
-import numpy as np
+from binance.client import Client
+from datetime import datetime, timedelta
+import pytz
+from threading import Thread
+import time
 import requests
 
-# ===================== CONFIG =====================
-API_KEY = 'cVRnAxc6nrVHQ6sbaAQNcrznHhOO7PcVZYlsES8Y75r34VJbYjQDfUTNcC8T2Fct'
-API_SECRET = 'GEYh2ck82RcaDTaHjbLafYWBLqkAMw90plNSkfmhrvVbAFcowBxcst4L3u0hBLfC'
+from telegram import Bot
 
-TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '7970489926:AAGjDmazd_EXkdT1cv8Lh8aNGZ1hPlkbcJg')
-TELEGRAM_CHANNEL_ID = os.environ.get('TELEGRAM_CHANNEL_ID', '@tradegrh')
+# =================== Config ===================
+BINANCE_API_KEY = os.environ.get("BINANCE_API_KEY", "cVRnAxc6nrVHQ6sbaAQNcrznHhOO7PcVZYlsES8Y75r34VJbYjQDfUTNcC8T2Fct")
+BINANCE_API_SECRET = os.environ.get("BINANCE_API_SECRET", "GEYh2ck82RcaDTaHjbLafYWBLqkAMw90plNSkfmhrvVbAFcowBxcst4L3u0hBLfC")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7970489926:AAGjDmazd_EXkdT1cv8Lh8aNGZ1hPlkbcJg")
+TELEGRAM_CHANNEL = os.environ.get("TELEGRAM_CHANNEL", "@tradegrh")  # Use channel username or chat id
 
 SYMBOLS = [
-    "BTCUSDT", "SHIBUSDT", "DOGEUSDT", "XRPUSDT", "BTTCUSDT", "NEIROUSDT", "FLOKIUSDT",
-    "BONKUSDT", "PEPEUSDT", "FLMUSDT", "ARBUSDT", "SUSHIUSDT", "XLMUSDT", "CFXUSDT",
-    "GMTUSDT", "ADAUSDT", "OSMOUSDT"
+    "BTCUSDT", "SHIBUSDT", "DOGEUSDT", "XRPUSDT", "BTTCUSDT",
+    "NEARUSDT", "FLOKIUSDT", "BONKUSDT", "PEPEUSDT", "FLMUSDT",
+    "ARBUSDT", "SUSHIUSDT", "XLMUSDT", "CFXUSDT", "GMTUSDT",
+    "ADAUSDT", "OSMOUSDT"
 ]
-INTERVAL = '1m'
-LOOKBACK = 5000
-MAX_RETRIES = 3
-RETRY_DELAY = 5
+CANDLE_LIMIT = 5000
 
-# Fallback to official Binance API if proxy fails
-BINANCE_API_BASE = 'https://api.binance.com/api/v3'
-BINANCE_PROXY = 'https://binance-vv7y.onrender.com'
-
+# =================== Flask ===================
 app = Flask(__name__)
-candles_data = {symbol: pd.DataFrame() for symbol in SYMBOLS}
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+# =================== Binance ===================
+binance = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
 
-# ===================== IMPROVED HELPER FUNCTIONS =====================
-def send_telegram_alert(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHANNEL_ID,
-        "text": message,
-        "parse_mode": "Markdown"
-    }
-    
-    for attempt in range(MAX_RETRIES):
-        try:
-            response = requests.post(url, json=payload, timeout=10)
-            if response.status_code == 200:
-                return True
-            logging.warning(f"Telegram attempt {attempt+1} failed: {response.text}")
-            time.sleep(RETRY_DELAY)
-        except Exception as e:
-            logging.warning(f"Telegram attempt {attempt+1} exception: {e}")
-            time.sleep(RETRY_DELAY)
-    return False
+# =================== Telegram ===================
+bot = Bot(TELEGRAM_BOT_TOKEN)
 
-def fetch_candles(symbol, limit=LOOKBACK):
-    """Try proxy first, fallback to official API"""
-    endpoints = [
-        f"{BINANCE_PROXY}/klines",
-        f"{BINANCE_API_BASE}/klines"
-    ]
-    
-    params = {
-        'symbol': symbol,
-        'interval': INTERVAL,
-        'limit': min(limit, 1000)  # Binance max is 1000 per request
-    }
-    
-    for endpoint in endpoints:
-        for attempt in range(MAX_RETRIES):
-            try:
-                response = requests.get(endpoint, params=params, timeout=20)
-                response.raise_for_status()
-                klines = response.json()
-                
-                df = pd.DataFrame(klines, columns=[
-                    "open_time", "open", "high", "low", "close", "volume", 
-                    "close_time", "quote_asset_volume", "trades", 
-                    "taker_base_vol", "taker_quote_vol", "ignore"
-                ])
-                
-                # Convert timestamps and numeric values
-                df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-                numeric_cols = ["open", "high", "low", "close", "volume"]
-                df[numeric_cols] = df[numeric_cols].astype(float)
-                
-                return df[["open_time", "open", "high", "low", "close", "volume"]]
-                
-            except requests.exceptions.HTTPError as e:
-                if e.response.status_code == 404:
-                    logging.warning(f"Symbol {symbol} not found on {endpoint}")
-                    break  # Try next endpoint
-                logging.warning(f"Attempt {attempt+1} failed for {symbol}: {e}")
-                time.sleep(RETRY_DELAY)
-            except Exception as e:
-                logging.warning(f"Attempt {attempt+1} error for {symbol}: {e}")
-                time.sleep(RETRY_DELAY)
-    
-    return pd.DataFrame()
+# =================== In-Memory Candle Cache ===================
+candle_cache = {symbol: [] for symbol in SYMBOLS}
+last_signal_sent = {symbol: None for symbol in SYMBOLS}
 
-# ===================== SIGNAL DETECTION (UNCHANGED) =====================
-def detect_signals(symbol, df):
-    signals = []
-    if len(df) < 10:
+# =================== Utilities ===================
+def fetch_klines(symbol, interval="1m", limit=CANDLE_LIMIT):
+    try:
+        klines = binance.get_klines(symbol=symbol, interval=interval, limit=limit)
+        result = []
+        for k in klines:
+            result.append({
+                'time': k[0] // 1000,
+                'open': float(k[1]),
+                'high': float(k[2]),
+                'low': float(k[3]),
+                'close': float(k[4]),
+                'volume': float(k[5])
+            })
+        return result
+    except Exception as e:
+        print(f"[{symbol}] Error fetching klines: {e}")
         return []
 
-    # [Previous signal detection logic remains exactly the same]
-    # ... (include all your existing signal detection code here)
-    
-    return signals
+# =============== Market Structure Detection ===============
+def detect_bos(klines, lookback=20):
+    if len(klines) < lookback + 2:
+        return None
+    highs = [k['high'] for k in klines[-lookback-1:-1]]
+    lows = [k['low'] for k in klines[-lookback-1:-1]]
+    last_close = klines[-1]['close']
+    swing_high = max(highs)
+    swing_low = min(lows)
+    if last_close > swing_high:
+        return {'type': 'bull', 'level': swing_high}
+    elif last_close < swing_low:
+        return {'type': 'bear', 'level': swing_low}
+    return None
 
-# ===================== IMPROVED WORKER =====================
-def worker():
+def detect_choch(klines, lookback=7):
+    if len(klines) < lookback + 2:
+        return None
+    highs = [k['high'] for k in klines[-lookback-1:-1]]
+    lows = [k['low'] for k in klines[-lookback-1:-1]]
+    prev_high = max(highs[:-2])
+    prev_low = min(lows[:-2])
+    # Bearish CHoCH
+    if (klines[-2]['close'] > prev_high and klines[-1]['close'] < klines[-2]['low']):
+        return {'type': 'bear', 'level': klines[-2]['low']}
+    # Bullish CHoCH
+    elif (klines[-2]['close'] < prev_low and klines[-1]['close'] > klines[-2]['high']):
+        return {'type': 'bull', 'level': klines[-2]['high']}
+    return None
+
+def detect_order_blocks(klines, window=6):
+    obs = []
+    for i in range(window, len(klines)):
+        # Bull OB
+        if (klines[i-1]['close'] < klines[i-1]['open'] and
+            klines[i]['close'] > klines[i-1]['high'] and
+            klines[i]['volume'] > sum(k['volume'] for k in klines[i-window:i]) / window):
+            obs.append({'type': 'bull', 'price': klines[i-1]['low'], 'index': i-1})
+        # Bear OB
+        if (klines[i-1]['close'] > klines[i-1]['open'] and
+            klines[i]['close'] < klines[i-1]['low'] and
+            klines[i]['volume'] > sum(k['volume'] for k in klines[i-window:i]) / window):
+            obs.append({'type': 'bear', 'price': klines[i-1]['high'], 'index': i-1})
+    return obs[-2:] if obs else []
+
+def detect_fvg(klines):
+    fvgs = []
+    for i in range(2, len(klines)):
+        prev = klines[i-2]
+        curr = klines[i]
+        # Bull FVG
+        if curr['low'] > prev['high']:
+            fvgs.append({'type':'bull', 'zone': (prev['high'], curr['low']), 'index': i})
+        # Bear FVG
+        if curr['high'] < prev['low']:
+            fvgs.append({'type':'bear', 'zone': (curr['high'], prev['low']), 'index': i})
+    return fvgs[-2:] if fvgs else []
+
+def fibo_levels(high, low):
+    diff = high - low
+    return {
+        '0': high,
+        '0.236': high - diff * 0.236,
+        '0.382': high - diff * 0.382,
+        '0.5': high - diff * 0.5,
+        '0.618': high - diff * 0.618,
+        '0.786': high - diff * 0.786,
+        '1': low,
+        '1.618': high - diff * 1.618,
+    }
+
+# =============== Signal Generation & Formatting ===============
+def analyze(symbol, klines):
+    bos = detect_bos(klines)
+    choch = detect_choch(klines)
+    obs = detect_order_blocks(klines)
+    fvgs = detect_fvg(klines)
+    # Fibo on last 40 bars
+    recent_high = max(k['high'] for k in klines[-40:])
+    recent_low = min(k['low'] for k in klines[-40:])
+    fib = fibo_levels(recent_high, recent_low)
+    msg = f"<b>📢 {symbol} 1m Market Structure</b>\n"
+    if bos: msg += f"• BOS: <b>{bos['type'].upper()}</b> at {bos['level']:.6f}\n"
+    if choch: msg += f"• CHoCH: <b>{choch['type'].upper()}</b> at {choch['level']:.6f}\n"
+    if obs:
+        for ob in obs:
+            msg += f"• OB: <b>{ob['type'].upper()}</b> at {ob['price']:.6f}\n"
+    if fvgs:
+        for fvg in fvgs:
+            msg += f"• FVG: <b>{fvg['type'].upper()}</b> {min(fvg['zone']):.6f}-{max(fvg['zone']):.6f}\n"
+    msg += f"• Fibo 1.618 extension: <b>{fib['1.618']:.6f}</b>\n"
+    msg += f"• Time: <code>{datetime.utcfromtimestamp(klines[-1]['time']).strftime('%Y-%m-%d %H:%M')}</code> UTC"
+    return msg
+
+def should_send(symbol, msg):
+    # Prevent duplicate signals
+    if last_signal_sent[symbol] != msg:
+        last_signal_sent[symbol] = msg
+        return True
+    return False
+
+def send_signal(symbol, msg):
+    try:
+        bot.send_message(
+            chat_id=TELEGRAM_CHANNEL,
+            text=msg,
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        print(f"[{symbol}] Telegram send error: {e}")
+
+# =============== Main Loop ===============
+def update_and_signal():
     while True:
-        start_time = time.time()
-        try:
-            for symbol in SYMBOLS:
-                df = fetch_candles(symbol)
-                if df.empty:
-                    logging.warning(f"No data for {symbol}")
-                    continue
-                
-                # Update candle storage with deduplication
-                if not candles_data[symbol].empty:
-                    combined = pd.concat([candles_data[symbol], df])
-                    combined = combined.drop_duplicates('open_time', keep='last')
-                    candles_data[symbol] = combined.tail(LOOKBACK)
-                else:
-                    candles_data[symbol] = df.tail(LOOKBACK)
-                
-                # Signal detection and alerting
-                signals = detect_signals(symbol, candles_data[symbol])
-                if signals:
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    price = candles_data[symbol]["close"].iloc[-1]
-                    message = (
-                        f"*{symbol} @ {timestamp}*\n"
-                        + "\n".join([f"- {s}" for s in signals])
-                        + f"\nPrice: {price:.8f}"
-                    )
-                    if send_telegram_alert(message):
-                        logging.info(f"Sent alert for {symbol}")
-                    else:
-                        logging.error(f"Failed to send alert for {symbol}")
-            
-            # Precise timing control
-            elapsed = time.time() - start_time
-            sleep_time = max(60 - elapsed, 0)
-            time.sleep(sleep_time)
-            
-        except Exception as e:
-            logging.error(f"Worker error: {e}")
-            time.sleep(10)
+        for symbol in SYMBOLS:
+            klines = fetch_klines(symbol)
+            if klines and len(klines) >= 50:
+                candle_cache[symbol] = klines[-CANDLE_LIMIT:]
+                msg = analyze(symbol, candle_cache[symbol])
+                if should_send(symbol, msg):
+                    send_signal(symbol, msg)
+        time.sleep(60)  # every minute
 
-# ===================== FLASK ENDPOINTS (UNCHANGED) =====================
+# =============== Flask Webhook Endpoint ===============
 @app.route('/')
 def index():
-    return "Crypto Signal Bot is running."
+    return "Institutional Sniper Bot (Binance 1m) is running!"
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    data = request.json
-    return {"status": "ok"}
+@app.route('/healthz')
+def healthz():
+    return "ok"
 
-# ===================== LAUNCH =====================
+# =============== Start Background Task ===============
 if __name__ == '__main__':
-    # Initial data load
-    logging.info("Loading initial data...")
-    for symbol in SYMBOLS:
-        df = fetch_candles(symbol)
-        if not df.empty:
-            candles_data[symbol] = df.tail(LOOKBACK)
-            logging.info(f"Loaded {len(df)} candles for {symbol}")
-        else:
-            logging.warning(f"Failed initial load for {symbol}")
-    
-    # Start worker thread
-    t = threading.Thread(target=worker, daemon=True)
-    t.start()
-    
-    # Start Flask app
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    # Start the background signal loop in a thread
+    Thread(target=update_and_signal, daemon=True).start()
+    # Run Flask app (for Render/Heroku web dyno)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
