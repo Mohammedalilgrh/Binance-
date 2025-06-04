@@ -8,7 +8,8 @@ from binance.client import Client
 from telegram import Bot
 
 # =================== CONFIG ===================
-BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "cVRnAxc6nrVHQ6sbaAQNcrznHhOO7PcVZYlsES8Y75r34VJbYjQDfUTNcC8T2Fct")
+
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "cVRnAxc6nrVHQ6sbaAQNcrznHhOO7PcVZYlsES8Y75r34VYjQDfUTNcC8T2Fct")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "GEYh2ck82RcaDTaHjbLafYWBLqkAMw90plNSkfmhrvVbAFcowBxcst4L3u0hBLfC")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "7970489926:AAGjDmazd_EXkdT1cv8Lh8aNGZ1hPlkbcJg")
 TELEGRAM_CHANNEL = os.getenv("TELEGRAM_CHANNEL", "@tradegrh")
@@ -19,9 +20,10 @@ SYMBOLS = [
     "ARBUSDT", "SUSHIUSDT", "XLMUSDT", "CFXUSDT", "GMTUSDT",
     "ADAUSDT", "OSMOUSDT"
 ]
-CANDLE_LIMIT = 5000
+CANDLE_LIMIT = 100  # Safe, low
 
 # =================== INIT ===================
+
 app = Flask(__name__)
 binance = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
 bot = Bot(TELEGRAM_BOT_TOKEN)
@@ -30,6 +32,7 @@ candle_cache = {symbol: [] for symbol in SYMBOLS}
 last_signal_sent = {symbol: None for symbol in SYMBOLS}
 
 # =================== MARKET STRUCTURE ===================
+
 def fetch_klines(symbol, interval="1m", limit=CANDLE_LIMIT):
     try:
         klines = binance.get_klines(symbol=symbol, interval=interval, limit=limit)
@@ -41,7 +44,7 @@ def fetch_klines(symbol, interval="1m", limit=CANDLE_LIMIT):
                 'high': float(k[2]),
                 'low': float(k[3]),
                 'close': float(k[4]),
-                'volume': float(k[5])
+                'volume': float(k[5]),
             })
         return result
     except Exception as e:
@@ -67,8 +70,8 @@ def detect_choch(klines, lookback=7):
         return None
     highs = [k['high'] for k in klines[-lookback-1:-1]]
     lows = [k['low'] for k in klines[-lookback-1:-1]]
-    prev_high = max(highs[:-2])
-    prev_low = min(lows[:-2])
+    prev_high = max(highs[:-2]) if len(highs) > 2 else max(highs)
+    prev_low = min(lows[:-2]) if len(lows) > 2 else min(lows)
     if (klines[-2]['close'] > prev_high and klines[-1]['close'] < klines[-2]['low']):
         return {'type': 'bear', 'level': klines[-2]['low']}
     elif (klines[-2]['close'] < prev_low and klines[-1]['close'] > klines[-2]['high']):
@@ -136,6 +139,7 @@ def analyze(symbol, klines):
     return msg
 
 def should_send(symbol, msg):
+    # Only send to Telegram if changed
     if last_signal_sent[symbol] != msg:
         last_signal_sent[symbol] = msg
         return True
@@ -149,6 +153,7 @@ def send_signal(symbol, msg):
             parse_mode="HTML",
             disable_web_page_preview=True
         )
+        print(f"[{symbol}] Signal sent.")
     except Exception as e:
         print(f"[{symbol}] Telegram send error: {e}")
 
@@ -157,13 +162,15 @@ def update_and_signal():
         for symbol in SYMBOLS:
             klines = fetch_klines(symbol)
             if klines and len(klines) >= 50:
-                candle_cache[symbol] = klines[-CANDLE_LIMIT:]
+                candle_cache[symbol] = klines
                 msg = analyze(symbol, candle_cache[symbol])
                 if should_send(symbol, msg):
                     send_signal(symbol, msg)
-        time.sleep(60)
+            time.sleep(4)  # Stagger symbol fetches: 4s * 17 = 68s for whole list
+        # No need for extra sleep, loop takes ~1 minute
 
 # =================== FLASK APP ===================
+
 @app.route('/')
 def index():
     return "Institutional Sniper Bot (Binance 1m) is running!"
