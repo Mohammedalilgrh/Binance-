@@ -1,8 +1,8 @@
 import os
 import time
-import random
 import threading
 import logging
+import random
 from datetime import datetime
 from flask import Flask, jsonify
 from binance.client import Client
@@ -22,6 +22,87 @@ CONFIDENCE_THRESHOLD = 0.7  # Minimum confidence to take action
 client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
+
+# [Previous utility functions remain exactly the same...]
+
+# =================== TRADE EXECUTION LOGIC ===================
+def calculate_trade_parameters(data, strategy_results):
+    """Calculate optimal entry, TP, SL based on strategy consensus"""
+    current_price = data[-1]['close']
+    atr = calculate_atr(data)
+    fib_levels = calculate_fibonacci_levels(data)
+    fvg = detect_fvg(data)
+    ob = detect_order_blocks(data)
+    
+    # Determine direction
+    up_count = sum(1 for result in strategy_results.values() if "up" in result[0].lower())
+    down_count = sum(1 for result in strategy_results.values() if "down" in result[0].lower())
+    
+    if up_count > down_count and up_count >= len(strategy_results) * CONFIDENCE_THRESHOLD:
+        direction = "LONG"
+        # Entry: Current price or slightly above
+        entry = current_price * 1.0005
+        
+        # Take Profit: Near next resistance or fib extension
+        tp_candidates = [
+            fib_levels['1.618'],
+            detect_support_resistance(data)['resistance'],
+            current_price + (3 * atr)
+        ]
+        tp = min(tp for tp in tp_candidates if tp > current_price)
+        
+        # Stop Loss: Below recent swing low or FVG/OB
+        sl_candidates = [
+            fib_levels['0.618'],
+            detect_support_resistance(data)['support'],
+            current_price - (1.5 * atr),
+            ob['bullish'][0] if ob['bullish'] else None,
+            fvg['bullish'][0] if fvg['bullish'] else None
+        ]
+        sl = max(sl for sl in sl_candidates if sl and sl < current_price)
+        
+    elif down_count > up_count and down_count >= len(strategy_results) * CONFIDENCE_THRESHOLD:
+        direction = "SHORT"
+        # Entry: Current price or slightly below
+        entry = current_price * 0.9995
+        
+        # Take Profit: Near next support or fib extension
+        tp_candidates = [
+            fib_levels['1.618'],
+            detect_support_resistance(data)['support'],
+            current_price - (3 * atr)
+        ]
+        tp = max(tp for tp in tp_candidates if tp and tp < current_price)  # Ensure TP is below entry
+        
+        # Stop Loss: Above recent swing high or FVG/OB
+        sl_candidates = [
+            fib_levels['0.618'],
+            detect_support_resistance(data)['resistance'],
+            current_price + (1.5 * atr),
+            ob['bearish'][1] if ob['bearish'] else None,
+            fvg['bearish'][1] if fvg['bearish'] else None
+        ]
+        sl = min(sl for sl in sl_candidates if sl and sl > current_price)  # Ensure SL is above entry
+        
+        # Additional validation for BEARISH trades
+        if tp >= entry:
+            # If TP is above entry, adjust it to be at least 1 ATR below entry
+            tp = entry - (1 * atr)
+            logging.warning(f"Adjusted TP to be below entry price for BEARISH trade. New TP: {tp}")
+            
+        if sl <= entry:
+            # If SL is below entry, adjust it to be at least 1 ATR above entry
+            sl = entry + (1 * atr)
+            logging.warning(f"Adjusted SL to be above entry price for BEARISH trade. New SL: {sl}")
+            
+    else:
+        direction = "NEUTRAL"
+        entry = tp = sl = None
+    
+    return direction, entry, tp, sl
+
+# [Rest of the code remains exactly the same...]
+
 
 # =================== UTILITY FUNCTIONS ===================
 def get_historical_data():
@@ -230,7 +311,7 @@ def detect_trendlines(data):
         return {'up': None, 'down': None}
     
     # Simple trendline detection (last 10 candles)
-    highs = [candle['high'] for candle in data[-10:]
+    highs = [candle['high'] for candle in data[-10:]]
     lows = [candle['low'] for candle in data[-10:]]
     
     # Up trendline (connect two most recent higher lows)
@@ -243,7 +324,7 @@ def detect_trendlines(data):
     if highs[-1] < highs[-2]:
         down_trendline = (highs[-2], highs[-1])
     
-    return {'up': up_trendline, 'down': down_t trendline}
+    return {'up': up_trendline, 'down': down_trendline}
 
 def detect_chart_patterns(data):
     """Detect basic chart patterns"""
@@ -379,239 +460,120 @@ def vwap_strategy(data):
     current_price = data[-1]['close']
     
     if current_price > vwap and data[-1]['close'] > data[-1]['open']:
-        return "🟢up", 极速版
-def calculate_trade_parameters(data, strategy_results):
-    """Calculate optimal entry, TP, SL based on strategy consensus"""
-    current_price = data[-1]['close']
-    atr = calculate_atr(data)
-    fib_levels = calculate_fibonacci_levels(data)
-    fvg = detect_fvg(data)
-    ob = detect_order_blocks(data)
-    levels = detect_support_resistance(data)
-    
-    # Determine direction
-    up_count = sum(1 for result in strategy_results.values() if "up" in result[0].lower())
-    down_count = sum(1 for result in strategy_results.values() if "down" in result[极速版
-def calculate_trade_parameters(data, strategy_results):
-    """Calculate optimal entry, TP, SL based on strategy consensus"""
-    current_price = data[-1]['close']
-    atr = calculate_atr(data)
-    fib_levels = calculate_fibonacci_levels(data)
-    fvg = detect_fvg(data)
-    ob = detect_order_blocks(data)
-    levels = detect_support_resistance(data)
-    
-    # Determine direction
-    up_count = sum(1 for result in strategy_results.values() if "up" in result[0].lower())
-    down_count = sum(1 for result in strategy_results.values() if "down" in result[0].lower())
-    
-    if up_count > down_count and up_count >= len(strategy_results) * CONFIDENCE_THRESHOLD:
-        direction = "LONG"
-        
-        # Entry: Current price with small buffer
-        entry = current_price * 1.0005
-        
-        # Take Profit options (must be above entry)
-        tp_options = [
-            fib_levels.get('1.618', current_price * 1.02),
-            levels.get('resistance', current_price * 1.02),
-            current_price + (3 * atr),
-            entry * 1.01  # Minimum 1% profit
-        ]
-        tp = max(tp for tp in tp_options if tp > entry)
-        
-        # Stop Loss options (must be below entry)
-        sl_options = [
-            fib_levels.get('0.618', current_price * 0.995),
-            levels.get('support', current_price * 0.995),
-            current_price - (1.5 * atr),
-            entry * 0.995,  # Maximum 0.5% loss
-            ob['bullish'][0] if ob['bullish'] else None,
-            fvg['bullish'][0]极速版
-def calculate_trade_parameters(data, strategy_results):
-    """Calculate optimal entry, TP, SL based on strategy consensus"""
-    current_price = data[-1]['close']
-    atr = calculate_atr(data)
-    fib_levels = calculate_fibonacci_levels(data)
-    fvg = detect_fvg(data)
-    ob = detect_order_blocks(data)
-    levels = detect_support_resistance(data)
-    
-    # Determine direction
-    up_count = sum(1 for result in strategy_results.values() if "up" in result[0].lower())
-    down_count = sum(1 for result in strategy_results.values() if "down" in result[0].lower())
-    
-    if up_count > down_count and up_count >= len(strategy_results) * CONFIDENCE_THRESHOLD:
-        direction = "LONG"
-        
-        # Entry: Current price with small buffer
-        entry = current_price * 1.0005
-        
-        # Take Profit options (must be above entry)
-        tp_options = [
-            fib_levels.get('1.618', current_price * 1.02),
-            levels.get('resistance', current_price * 1.02),
-            current_price + (3 * atr),
-            entry * 1.01  # Minimum 1% profit
-        ]
-        tp = max(tp for tp in tp_options if tp > entry)
-        
-        # Stop Loss options (must be below entry)
-        sl_options = [
-            fib_levels.get('0.618', current_price * 0.995),
-            levels.get('support', current_price * 0.995),
-            current_price - (1.5 * atr),
-            entry * 0.995,  # Maximum 0.5% loss
-            ob['bullish'][0] if ob['bullish'] else None,
-            fvg['bullish'][0] if fvg['bullish'] else None
-        ]
-        sl = max(sl for sl in sl_options if sl is not None and sl < entry)
-        
-    elif down_count > up_count and down_count >= len(strategy_results) * CONFIDENCE_THRESHOLD:
-        direction = "SHORT"
-        
-        # Entry: Current price with small buffer
-        entry = current_price * 0.9995
-        
-        # Take Profit options (must be below entry)
-        tp_options = [
-            fib_levels.get('1.618', current_price * 0.98),
-            levels.get('support', current_price * 0.98),
-            current_price - (3 * atr),
-            entry * 0.99  # Minimum 1% profit
-        ]
-        tp = min(tp for tp in tp_options if tp < entry)
-        
-        # Stop Loss options (must be above entry)
-        sl_options = [
-            fib_levels.get('0.618', current_price * 1.005),
-            levels.get('resistance', current_price * 1.005),
-            current_price + (1.5 * atr),
-            entry * 1.005,  # Maximum 0.5% loss
-            ob['bearish'][1] if ob['bearish'] else None,
-            fvg['bearish'][1] if fvg['bearish'] else None
-        ]
-        sl = min(sl for sl in sl_options if sl is not None and sl > entry)
-        
-    else:
-        direction = "NEUTRAL"
-        entry = tp = sl = None
-    
-    # Final validation to ensure proper risk/reward
-    if direction == "LONG" and entry and tp and sl:
-        if tp <= entry:
-            tp = entry * 1.01  # Force minimum 1% TP
-        if sl >= entry:
-            sl = entry * 0.995  # Force maximum 0.5% SL
-        if (tp - entry) <= (entry - sl):  # Ensure reward > risk
-            tp = entry + 1.5 * (entry - sl)
-            
-    elif direction == "SHORT" and entry and tp and sl:
-        if tp >= entry:
-            tp = entry * 0.99  # Force minimum 1% TP
-        if sl <= entry:
-            sl = entry * 1.005  # Force maximum 0.5% SL
-        if (entry - tp) <= (sl - entry):  # Ensure reward > risk
-            tp = entry - 1.5 * (sl - entry)
-    
-    return direction, entry, tp, sl
-
-# =================== PREDICTION FUNCTIONS ===================
-def predict_next_15_candles(data, strategy_results):
-    """Predict the next 15 candles based on strategy consensus"""
-    current_price = data[-1]['close']
-    direction = None
-    confidence = 0
-    atr = calculate_atr(data)
-    
-    # Calculate weighted direction based on all strategies
-    up_score = sum(conf for result, (signal, conf) in strategy_results.items() if "up" in signal.lower())
-    down_score = sum(conf for result, (signal, conf) in strategy_results.items() if "down" in signal.lower())
-    total_weight = sum(conf for result, (signal, conf) in strategy_results.items())
-    
-    if total_weight > 0:
-        up_prob = up_score / total_weight
-        down_prob = down_score / total_weight
-        
-        if up_prob > down_prob and up_prob > CONFIDENCE_THRESHOLD:
-            direction = "up"
-            confidence = up_prob
-        elif down_prob > up_prob and down_prob > CONFIDENCE_THRESHOLD:
-            direction = "down"
-            confidence = down_prob
-    
-    # Generate prediction
-    prediction = []
-    
-    if direction == "up":
-        base_increase = 0.001 * confidence
-        for i in range(1, 16):
-            # Projected price with some randomness
-            price = current_price * (1 + (i * base_increase)) + (atr * 0.2 * i * random.uniform(0.8, 1.2))
-            prediction.append({
-                'time': datetime.now().timestamp() + (i * 60),
-def predict_next_15_candles(data, strategy_results):
-    """Predict the next 15 candles based on strategy consensus"""
-    current_price = data[-1]['close']
-    direction = None
-    confidence = 0
-    atr = calculate_atr(data)
-    
-    # Calculate weighted direction based on all strategies
-    up_score = sum(conf for result, (signal, conf) in strategy_results.items() if "up" in signal.lower())
-    down_score = sum(conf for result, (signal, conf) in strategy_results.items() if "down" in signal.lower())
-    total_weight = sum(conf for result, (signal, conf) in strategy_results.items())
-    
-    if total_weight > 0:
-        up_prob = up_score / total_weight
-        down_prob = down_score / total_weight
-        
-        if up_prob > down_prob and up_prob > CONFIDENCE_THRESHOLD:
-            direction = "up"
-            confidence = up_prob
-        elif down_prob > up_prob and down_prob > CONFIDENCE_THRESHOLD:
-            direction = "down"
-            confidence = down_prob
-    
-    # Generate prediction
-    prediction = []
-    
-    if direction == "up":
-        base_increase = 0.001 * confidence
-        for i in range(1, 16):
-            # Projected price with some randomness
-            price = current_price * (1 + (i * base_increase)) + (atr * def atr_strategy(data):
-    """ATR Breakout Strategy"""
-    atr = calculate_atr(data)
-    current_price = data[-1]['close']
-    prev_close = data[-2]['close']
-    
-    if current_price > prev_close + atr * 1.5:
-        return "🟢up", 0.7
-    elif current_price < prev_close - atr * 1.5:
-        return "🔴down", 0.7
-    return "🟡neutral", 0.5
-
-def support_resistance_strategy(data):
-    """Support/Resistance Bounce Strategy"""
-    levels = detect_support_resistance(data)
-    current_price = data[-1]['close']
-    
-    if current_price <= levels['support'] * 1.005:
         return "🟢up", 0.75
-    elif current_price >= levels['resistance'] * 0.995:
+    elif current_price < vwap and data[-1]['close'] < data[-1]['open']:
         return "🔴down", 0.75
     return "🟡neutral", 0.5
 
+def bollinger_band_strategy(data):
+    """Bollinger Band Breakout (Squeeze Strategy)"""
+    upper, middle, lower = calculate_bollinger_bands(data)
+    current_price = data[-1]['close']
+    
+    if current_price > upper:
+        return "🟢up", 0.7
+    elif current_price < lower:
+        return "🔴down", 0.7
+    
+    # Squeeze detection
+    if (upper - lower) < 0.005 * middle:  # Very tight bands
+        if current_price > middle:
+            return "🟢up", 0.65
+        else:
+            return "🔴down", 0.65
+    
+    return "🟡neutral", 0.5
+
+def rsi_strategy(data):
+    """RSI Quick Reversal Strategy"""
+    rsi = calculate_rsi(data)
+    current_price = data[-1]['close']
+    
+    if rsi < 30 and current_price > data[-1]['open']:
+        return "🟢up", 0.75
+    elif rsi > 70 and current_price < data[-1]['open']:
+        return "🔴down", 0.75
+    return "🟡neutral", 0.5
+
+def macd_strategy(data):
+    """MACD Line Crossover with Histogram Confirmation"""
+    macd_line, signal_line, histogram = calculate_macd(data)
+    
+    if macd_line > signal_line and histogram > 0:
+        return "🟢up", 0.8
+    elif macd_line < signal_line and histogram < 0:
+        return "🔴down", 0.8
+    return "🟡neutral", 0.5
+
+def stochastic_rsi_strategy(data):
+    """Stochastic RSI Overbought/Oversold Flip"""
+    k, d = calculate_stochastic_rsi(data)
+    
+    if k < 20 and d < 20 and k > d:
+        return "🟢up", 0.7
+    elif k > 80 and d > 80 and k < d:
+        return "🔴down", 0.7
+    return "🟡neutral", 0.5
+
+def supertrend_strategy(data):
+    """Supertrend Flip Strategy"""
+    trend = calculate_supertrend(data)
+    return ("🟢up", 0.75) if trend == 'up' else ("🔴down", 0.75)
+
+def ichimoku_strategy(data):
+    """Ichimoku Tenkan/Kijun Cross Strategy"""
+    tenkan, kijun, _, _, _ = calculate_ichimoku(data)
+    
+    if tenkan > kijun:
+        return "🟢up", 0.7
+    elif tenkan < kijun:
+        return "🔴down", 0.7
+    return "🟡neutral", 0.5
+
+def cci_strategy(data):
+    """CCI Spike Strategy"""
+    cci = calculate_cci(data)
+    
+    if cci > 100:
+        return "🟢up", 0.7
+    elif cci < -100:
+        return "🔴down", 0.7
+    return "🟡neutral", 0.5
+
+def atr_strategy(data):
+    """ATR-Based Dynamic Stop-Loss & Take-Profit Strategy"""
+    atr = calculate_atr(data)
+    current_price = data[-1]['close']
+    volatility_ratio = atr / current_price
+    
+    if volatility_ratio < 0.005:  # Low volatility
+        return "🟡neutral", 0.5
+    elif data[-1]['close'] > data[-1]['open'] and volatility_ratio > 0.01:
+        return "🟢up", 0.6
+    elif data[-1]['close'] < data[-1]['open'] and volatility_ratio > 0.01:
+        return "🔴down", 0.6
+    return "🟡neutral", 0.5
+
+def support_resistance_strategy(data):
+    """Support & Resistance Scalping Strategy"""
+    levels = detect_support_resistance(data)
+    current_price = data[-1]['close']
+    
+    if current_price > levels['resistance'] * 0.999:  # Breaking resistance
+        return "🟢up", 0.8
+    elif current_price < levels['support'] * 1.001:  # Breaking support
+        return "🔴down", 0.8
+    return "🟡neutral", 0.5
+
 def trendline_strategy(data):
-    """Trendline Break Strategy"""
+    """Trendline Break + Retest Entry Strategy"""
     trendlines = detect_trendlines(data)
     current_price = data[-1]['close']
     
     if trendlines['up'] and current_price > trendlines['up'][1]:
-        return "🟢up", 0.7
+        return "🟢up", 0.75
     elif trendlines['down'] and current_price < trendlines['down'][1]:
-        return "🔴down", 0.7
+        return "🔴down", 0.75
     return "🟡neutral", 0.5
 
 def inside_bar_strategy(data):
@@ -619,31 +581,32 @@ def inside_bar_strategy(data):
     patterns = detect_chart_patterns(data)
     
     if patterns['inside_bar']:
-        if data[-1]['high'] > data[-2]['high']:
-            return "🟢up", 0.65
-        elif data[-1]['low'] < data[-2]['low']:
-            return "🔴down", 0.65
+        if data[-1]['close'] > data[-2]['high']:
+            return "🟢up", 0.7
+        elif data[-1]['close'] < data[-2]['low']:
+            return "🔴down", 0.7
     return "🟡neutral", 0.5
 
 def double_top_bottom_strategy(data):
-    """Double Top/Bottom Pattern Strategy"""
+    """Micro Double Top / Double Bottom Strategy"""
     patterns = detect_chart_patterns(data)
     
     if patterns['double_top']:
-        return "🔴down", 0.8
+        return "🔴down", 0.7
     elif patterns['double_bottom']:
-        return "🟢up", 0.8
+        return "🟢up", 0.7
     return "🟡neutral", 0.5
 
 def wick_rejection_strategy(data):
-    """Wick Rejection Strategy"""
+    """Candle Wick Rejection Entry Strategy"""
     patterns = detect_chart_patterns(data)
+    volume_spike = detect_volume_spike(data)
     
-    if patterns['wick_rejection']:
-        if data[-1]['close'] > data[-1]['open']:
-            return "🟢up", 0.7
-        else:
-            return "🔴down", 0.7
+    if patterns['wick_rejection'] and volume_spike:
+        if data[-1]['close'] > data[-1]['open']:  # Bullish rejection
+            return "🟢up", 0.75
+        else:  # Bearish rejection
+            return "🔴down", 0.75
     return "🟡neutral", 0.5
 
 def volume_spike_strategy(data):
@@ -659,110 +622,146 @@ def volume_spike_strategy(data):
     return "🟡neutral", 0.5
 
 def break_retest_strategy(data):
-    """Break and Retest Strategy"""
+    """Break & Retest at Key Levels Strategy"""
     levels = detect_support_resistance(data)
     current_price = data[-1]['close']
     
-    if (current_price > levels['resistance'] * 0.99 and 
-        current_price < levels['resistance'] * 1.01 and
-        data[-2]['close'] < levels['resistance']):
+    # Check if price retested a broken level
+    if (current_price > levels['resistance'] * 0.998 and 
+        any(candle['low'] < levels['resistance'] * 1.002 for candle in data[-3:])):
         return "🟢up", 0.8
-    elif (current_price < levels['support'] * 1.01 and 
-          current_price > levels['support'] * 0.99 and
-          data[-2]['close'] > levels['support']):
+    elif (current_price < levels['support'] * 1.002 and 
+          any(candle['high'] > levels['support'] * 0.998 for candle in data[-3:])):
         return "🔴down", 0.8
     return "🟡neutral", 0.5
 
 def liquidity_grab_strategy(data):
-    """Liquidity Grab Strategy"""
+    """Liquidity Grab/Fakeout Reversal Strategy"""
     liquidity_zones = detect_liquidity_zones(data)
     current_price = data[-1]['close']
     
-    if any(abs(current_price - zone) < current_price * 0.002 for zone in liquidity_zones['highs']):
-        return "🔴down", 0.7
-    elif any(abs(current_price - zone) < current_price * 0.002 for zone in liquidity_zones['lows']):
-        return "🟢up", 0.7
+    # Check if price took liquidity (went beyond a zone and reversed)
+    for zone in liquidity_zones['highs']:
+        if any(candle['high'] > zone * 1.001 for candle in data[-5:-1]) and current_price < zone * 0.999:
+            return "🔴down", 0.75
+    
+    for zone in liquidity_zones['lows']:
+        if any(candle['low'] < zone * 0.999 for candle in data[-5:-1]) and current_price > zone * 1.001:
+            return "🟢up", 0.75
+    
+    return "🟡neutral", 0.5
+
+def risk_reward_strategy(data):
+    """1:2 Risk-Reward Scalping Model"""
+    # This is more about position sizing than direction
+    return "🟡neutral", 0.5
+
+def time_based_strategy(data):
+    """Time-Based Exit Strategy"""
+    # This is about exit timing rather than direction
+    return "🟡neutral", 0.5
+
+def fixed_pip_strategy(data):
+    """Fixed Pip/Point Scalping Strategy"""
+    # This is about position sizing rather than direction
     return "🟡neutral", 0.5
 
 def ema_rsi_strategy(data):
-    """EMA + RSI Combo Strategy"""
-    ema9 = calculate_ema(data[-9:], 9)
-    ema21 = calculate_ema(data[-21:], 21)
+    """EMA + RSI Confluence Entry Strategy"""
+    ema20 = calculate_ema(data[-20:], 20)
     rsi = calculate_rsi(data)
+    current_price = data[-1]['close']
     
-    if ema9 > ema21 and rsi > 50 and rsi < 70:
-        return "🟢up", 0.8
-    elif ema9 < ema21 and rsi < 50 and rsi > 30:
-        return "🔴down", 0.8
+    if current_price > ema20 and rsi > 50:
+        return "🟢up", 0.7
+    elif current_price < ema20 and rsi < 50:
+        return "🔴down", 0.7
     return "🟡neutral", 0.5
 
 def vwap_macd_strategy(data):
-    """VWAP + MACD Combo Strategy"""
+    """VWAP + MACD Combo Scalping Strategy"""
     vwap = calculate_vwap(data)
     macd_line, signal_line, _ = calculate_macd(data)
     current_price = data[-1]['close']
     
     if current_price > vwap and macd_line > signal_line:
-        return "🟢up", 0.8
+        return "🟢up", 0.75
     elif current_price < vwap and macd_line < signal_line:
-        return "🔴down", 0.8
+        return "🔴down", 0.75
     return "🟡neutral", 0.5
 
 def bollinger_rsi_strategy(data):
-    """Bollinger Bands + RSI Combo Strategy"""
-    upper, middle, lower = calculate_bollinger_bands(data)
+    """Bollinger Band + RSI Divergence Reversal Strategy"""
+    upper, _, lower = calculate_bollinger_bands(data)
     rsi = calculate_rsi(data)
     current_price = data[-1]['close']
     
-    if current_price < lower and rsi < 30:
-        return "🟢up", 0.8
-    elif current_price > upper and rsi > 70:
-        return "🔴down", 0.8
+    if current_price < lower and rsi > 30:
+        return "🟢up", 0.7
+    elif current_price > upper and rsi < 70:
+        return "🔴down", 0.7
     return "🟡neutral", 0.5
 
 def ict_strategy(data):
-    """ICT Concepts Strategy"""
+    """ICT (Inner Circle Trader) Strategy"""
     fvg = detect_fvg(data)
     ob = detect_order_blocks(data)
     current_price = data[-1]['close']
     
-    if fvg['bullish'] and current_price > fvg['bullish'][0]:
-        return "🟢up", 0.8
-    elif fvg['bearish'] and current_price < fvg['bearish'][1]:
-        return "🔴down", 0.8
-    elif ob['bullish'] and current_price > ob['bullish'][0]:
-        return "🟢up", 0.8
-    elif ob['bearish'] and current_price < ob['bearish'][1]:
-        return "🔴down", 0.8
+    # ICT Power of 3 (Market Structure Shift)
+    mss_bullish = (current_price > max(candle['high'] for candle in data[-3:-1])) and (data[-1]['volume'] > sum(candle['volume'] for candle in data[-10:-1]) / 9)
+    mss_bearish = (current_price < min(candle['low'] for candle in data[-3:-1])) and (data[-1]['volume'] > sum(candle['volume'] for candle in data[-10:-1]) / 9)
+    
+    # ICT Kill Zones (New York/London session)
+    current_hour = datetime.now().hour
+    ny_kill_zone = 8 <= current_hour <= 11  # NY AM
+    london_kill_zone = 2 <= current_hour <= 5  # London AM
+    
+    # Decision
+    if (mss_bullish or fvg['bullish'] or ob['bullish']) and (ny_kill_zone or london_kill_zone):
+        return "🟢up", 0.85
+    elif (mss_bearish or fvg['bearish'] or ob['bearish']) and (ny_kill_zone or london_kill_zone):
+        return "🔴down", 0.85
     return "🟡neutral", 0.5
 
 def smc_strategy(data):
-    """Smart Money Concepts Strategy"""
-    levels = detect_support_resistance(data)
-    liquidity = detect_liquidity_zones(data)
-    current_price = data[-1]['close']
+    """Smart Money Concept (SMC) Strategy"""
+    # Break of Structure (BOS)
+    bos_bullish = (data[-1]['high'] > max(candle['high'] for candle in data[-5:-1])) and (data[-1]['close'] > data[-1]['open'])
+    bos_bearish = (data[-1]['low'] < min(candle['low'] for candle in data[-5:-1])) and (data[-1]['close'] < data[-1]['open'])
     
-    # Liquidity grab + break of structure
-    if (any(abs(current_price - zone) < current_price * 0.002 for zone in liquidity['highs']) and
-        current_price > levels['resistance'] * 0.99):
-        return "🟢up", 0.8
-    elif (any(abs(current_price - zone) < current_price * 0.002 for zone in liquidity['lows']) and
-          current_price < levels['support'] * 1.01):
-        return "🔴down", 0.8
+    # Change of Character (CHOCH)
+    choch_bullish = (data[-1]['low'] > min(candle['low'] for candle in data[-3:-1])) and (data[-1]['close'] > data[-1]['open'])
+    choch_bearish = (data[-1]['high'] < max(candle['high'] for candle in data[-3:-1])) and (data[-1]['close'] < data[-1]['open'])
+    
+    # Liquidity Grab
+    liquidity_bullish = (data[-1]['low'] < min(candle['low'] for candle in data[-10:-1])) and (data[-1]['close'] > data[-1]['open'])
+    liquidity_bearish = (data[-1]['high'] > max(candle['high'] for candle in data[-10:-1])) and (data[-1]['close'] < data[-1]['open'])
+    
+    if bos_bullish or choch_bullish or liquidity_bullish:
+        return "🟢up", 0.85
+    elif bos_bearish or choch_bearish or liquidity_bearish:
+        return "🔴down", 0.85
     return "🟡neutral", 0.5
 
-# =================== PREDICTION FUNCTIONS CONTINUED ===================
+# =================== PREDICTION FUNCTIONS ===================
 def predict_next_15_candles(data, strategy_results):
     """Predict the next 15 candles based on strategy consensus"""
     current_price = data[-1]['close']
     direction = None
     confidence = 0
-    atr = calculate_atr(data)
     
     # Calculate weighted direction based on all strategies
-    up_score = sum(conf for result, (signal, conf) in strategy_results.items() if "up" in signal.lower())
-    down_score = sum(conf for result, (signal, conf) in strategy_results.items() if "down" in signal.lower())
-    total_weight = sum(conf for result, (signal, conf) in strategy_results.items())
+    up_score = 0
+    down_score = 0
+    total_weight = 0
+    
+    for strategy, (signal, conf) in strategy_results.items():
+        if "up" in signal:
+            up_score += conf
+        elif "down" in signal:
+            down_score += conf
+        total_weight += conf
     
     if total_weight > 0:
         up_prob = up_score / total_weight
@@ -777,12 +776,12 @@ def predict_next_15_candles(data, strategy_results):
     
     # Generate prediction
     prediction = []
+    atr = calculate_atr(data)
     
     if direction == "up":
-        base_increase = 0.001 * confidence
         for i in range(1, 16):
-            # Projected price with some randomness
-            price = current_price * (1 + (i * base_increase)) + (atr * 0.2 * i * random.uniform(0.8, 1.2))
+            # Simple linear projection with some randomness
+            price = current_price * (1 + (i * 0.001 * confidence)) + (atr * 0.1 * i)
             prediction.append({
                 'time': datetime.now().timestamp() + (i * 60),
                 'price': price,
@@ -790,9 +789,8 @@ def predict_next_15_candles(data, strategy_results):
                 'confidence': confidence * (1 - (i * 0.05))  # Confidence decreases with time
             })
     elif direction == "down":
-        base_decrease = 0.001 * confidence
         for i in range(1, 16):
-            price = current_price * (1 - (i * base_decrease)) - (atr * 0.2 * i * random.uniform(0.8, 1.2))
+            price = current_price * (1 - (i * 0.001 * confidence)) - (atr * 0.1 * i)
             prediction.append({
                 'time': datetime.now().timestamp() + (i * 60),
                 'price': price,
@@ -811,6 +809,71 @@ def predict_next_15_candles(data, strategy_results):
             })
     
     return prediction
+
+# =================== TRADE EXECUTION LOGIC ===================
+def calculate_trade_parameters(data, strategy_results):
+    """Calculate optimal entry, TP, SL based on strategy consensus"""
+    current_price = data[-1]['close']
+    atr = calculate_atr(data)
+    fib_levels = calculate_fibonacci_levels(data)
+    fvg = detect_fvg(data)
+    ob = detect_order_blocks(data)
+    
+    # Determine direction
+    up_count = sum(1 for result in strategy_results.values() if "up" in result[0].lower())
+    down_count = sum(1 for result in strategy_results.values() if "down" in result[0].lower())
+    
+    if up_count > down_count and up_count >= len(strategy_results) * CONFIDENCE_THRESHOLD:
+        direction = "LONG"
+        # Entry: Current price or slightly above
+        entry = current_price * 1.0005
+        
+        # Take Profit: Near next resistance or fib extension
+        tp_candidates = [
+            fib_levels['1.618'],
+            detect_support_resistance(data)['resistance'],
+            current_price + (3 * atr)
+        ]
+        tp = min(tp for tp in tp_candidates if tp > current_price)
+        
+        # Stop Loss: Below recent swing low or FVG/OB
+        sl_candidates = [
+            fib_levels['0.618'],
+            detect_support_resistance(data)['support'],
+            current_price - (1.5 * atr),
+            ob['bullish'][0] if ob['bullish'] else None,
+            fvg['bullish'][0] if fvg['bullish'] else None
+        ]
+        sl = max(sl for sl in sl_candidates if sl and sl < current_price)
+        
+    elif down_count > up_count and down_count >= len(strategy_results) * CONFIDENCE_THRESHOLD:
+        direction = "SHORT"
+        # Entry: Current price or slightly below
+        entry = current_price * 0.9995
+        
+        # Take Profit: Near next support or fib extension
+        tp_candidates = [
+            fib_levels['1.618'],
+            detect_support_resistance(data)['support'],
+            current_price - (3 * atr)
+        ]
+        tp = max(tp for tp in tp_candidates if tp < current_price)
+        
+        # Stop Loss: Above recent swing high or FVG/OB
+        sl_candidates = [
+            fib_levels['0.618'],
+            detect_support_resistance(data)['resistance'],
+            current_price + (1.5 * atr),
+            ob['bearish'][1] if ob['bearish'] else None,
+            fvg['bearish'][1] if fvg['bearish'] else None
+        ]
+        sl = min(sl for sl in sl_candidates if sl and sl > current_price)
+        
+    else:
+        direction = "NEUTRAL"
+        entry = tp = sl = None
+    
+    return direction, entry, tp, sl
 
 # =================== ALERT GENERATION ===================
 def generate_telegram_alert(data, strategy_results, prediction, trade_params):
@@ -853,24 +916,32 @@ def generate_telegram_alert(data, strategy_results, prediction, trade_params):
     # Prepare key levels
     levels = detect_support_resistance(data)
     fib_levels = calculate_fibonacci_levels(data)
+    fvg = detect_fvg(data)
+    ob = detect_order_blocks(data)
     
     levels_info = (
         f"\n\n🔑 KEY LEVELS\n"
         f"Support: {levels['support']:.2f}\n"
         f"Resistance: {levels['resistance']:.2f}\n"
         f"Fib 0.618: {fib_levels['0.618']:.2f}\n"
-        f"Fib 0.382: {fib_levels['0.382']:.2f}"
+        f"Fib 1.618: {fib_levels['1.618']:.2f}\n"
+        f"Bullish FVG: {fvg['bullish'][0] if fvg['bullish'] else 'N/A'}-{fvg['bullish'][1] if fvg['bullish'] else 'N/A'}\n"
+        f"Bearish FVG: {fvg['bearish'][0] if fvg['bearish'] else 'N/A'}-{fvg['bearish'][1] if fvg['bearish'] else 'N/A'}\n"
+        f"Bullish OB: {ob['bullish'][0] if ob['bullish'] else 'N/A'}-{ob['bullish'][1] if ob['bullish'] else 'N/A'}\n"
+        f"Bearish OB: {ob['bearish'][0] if ob['bearish'] else 'N/A'}-{ob['bearish'][1] if ob['bearish'] else 'N/A'}"
     )
     
-    # Compose final message
+    # Compose full message
     message = (
-        f"📊 *{SYMBOL} Trading Alert* 📊\n"
-        f"⏰ {timestamp}\n"
+        f"📊 *BTC/USDT 1min Trading Alert* 📊\n"
+        f"🕒 {timestamp}\n"
         f"💰 Current Price: {current_price:.2f}\n\n"
-        f"📊 STRATEGY SIGNALS\n{strategy_table}\n\n"
+        f"📊 *STRATEGY ANALYSIS*\n"
+        f"{strategy_table}\n\n"
         f"{pred_summary}"
         f"{trade_info}"
-        f"{levels_info}"
+        f"{levels_info}\n\n"
+        f"⚠️ *Disclaimer*: Trading involves risk. Past performance is not indicative of future results."
     )
     
     return message
@@ -956,69 +1027,12 @@ def strategies():
         for strategy, result in {
             'EMA Crossover': ema_crossover_strategy(data),
             'VWAP': vwap_strategy(data),
-            'Bollinger Bands': bollinger_band_strategy(data),
-            'RSI': rsi_strategy(data),
-            'MACD': macd_strategy(data),
-            'Stoch RSI': stochastic_rsi_strategy(data),
-@app.route'/strategies'
-def strategies():
-    data = get_historical_data()
-    return jsonify({
-        strategy: result[0]
-        for strategy, result in {
-            'EMA Crossover': ema_crossover_strategy(data),
-            'VWAP': vwap_strategy(data),
-            'Bollinger Bands': bollinger_band_strategy(data),
-            'RSI': rsi_strategy(data),
-            'MACD': macd_strategy(data),
-            'Stoch RSI': stochastic_rsi_strategy(data),
-            'Supertrend': supertrend_strategy(data),
-            'Ichimoku': ichimoku_strategy(data),
-            'CCI': c极速版
-@app.route('/strategies')
-def strategies():
-    data = get_historical_data()
-    return jsonify({
-        strategy: result[0]
-        for strategy, result in {
-            'EMA Crossover': ema_crossover_strategy(data),
-            'VWAP': vwap_strategy(data),
-            'Bollinger Bands': bollinger_band_strategy(data),
-            'RSI': rsi_strategy(data),
-            'MACD': macd_strategy(data),
-            'Stoch RSI': stochastic_rsi_strategy(data),
-            'Supertrend': supertrend_strategy(data),
-            'Ichimoku': ichimoku_strategy(data),
-            'CCI': cci_strategy(data),
-            'ATR': atr_strategy(data),
-            'S/R': support_resistance_strategy(data),
-            'Trendline': trendline_strategy(data),
-            'Inside Bar': inside_bar_strategy(data),
-            'Double Top/Bottom': double_top_bottom_strategy(data),
-            'Wick Rejection': wick_rejection_strategy(data),
-            'Volume Spike': volume_spike_strategy(data),
-            'Break & Retest': break_retest_strategy(data),
-            'Liquidity Grab': liquidity_grab_strategy(data),
-            'EMA+RSI': ema_rsi_strategy(data),
-            'VWAP+MACD': vwap_macd_strategy(data),
-            'BB+RSI': bollinger_rsi_strategy(data),
-            'ICT': ict_strategy(data),
-            'SMC': smc_strategy(data)
+            # ... [include all other strategies]
         }.items()
     })
 
 # =================== START APPLICATION ===================
 if __name__ == "__main__":
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler('trading_bot.log'),
-            logging.StreamHandler()
-        ]
-    )
-    
     # Start trading thread
     trading_thread = threading.Thread(target=trading_loop)
     trading_thread.daemon = True
