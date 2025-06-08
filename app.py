@@ -960,7 +960,6 @@ def strategies():
             'RSI': rsi_strategy(data),
             'MACD': macd_strategy(data),
             'Stoch RSI': stochastic_rsi_strategy(data),
-            '
 @app.route('/strategies')
 def strategies():
     data = get_historical_data()
