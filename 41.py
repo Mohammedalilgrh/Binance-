@@ -15,7 +15,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "7970489926:AAGjDmazd_EXkdT
 TELEGRAM_CHANNEL = os.getenv("TELEGRAM_CHANNEL", "@tradegrh")
 SYMBOL = "BTCUSDT"
 INTERVAL = Client.KLINE_INTERVAL_1MINUTE
-CANDLE_LIMIT = 100
+CANDLE_LIMIT = 68
 
 client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
@@ -208,10 +208,10 @@ def ict(candles):
 def smc(candles):
     # Smart Money Concept strategy
     # Checks for liquidity grabs and stop hunts
-    if (candles[-2]["low"] < candles[-3]["low"] and 
+    if (candles[-2]["low"] < candles[-3]["low"] and
         candles[-1]["close"] > candles[-3]["high"]):
         return "🟢up"
-    elif (candles[-2]["high"] > candles[-3]["high"] and 
+    elif (candles[-2]["high"] > candles[-3]["high"] and
           candles[-1]["close"] < candles[-3]["low"]):
         return "🔴down"
     return "⚪️neutral"
@@ -306,7 +306,7 @@ def strategy_keltner_channels(candles, ema_period=20, atr_period=10, multiplier=
     lower = ema_val - multiplier * atr_val
 
     current = candles[-1]["close"]
-    return "🟢up" if current > upper else "🔴down" if current < lower else "⚪️neutral"
+    return "🟢up" if current > upper else "🔴down" if current < lower else " ⚪️neutral"
 
 # Fixed strategy_trix
 def strategy_trix(candles, period=15):
@@ -419,7 +419,7 @@ def strategy_vwap(candles):
 def strategy_donchian_breakout(candles, period=20):
     upper, lower = donchian_channel(candles, period)
     current = candles[-1]["close"]
-    return "🟢up" if current > upper else "🔴down" if current < lower else "⚪️neutral"
+    return "🟢up" if current > upper else "🔴down" if current < lower else " ⚪️neutral"
 
 def strategy_inside_bar(candles):
     if candles[-1]["high"] < candles[-2]["high"] and candles[-1]["low"] > candles[-2]["low"]:
@@ -452,13 +452,13 @@ def strategy_fractal_breakout(candles):
     bearish = False
     bullish = False
 
-    if (candles[-3]["high"] > candles[-5]["high"] and 
+    if (candles[-3]["high"] > candles[-5]["high"] and
         candles[-3]["high"] > candles[-4]["high"] and
         candles[-3]["high"] > candles[-2]["high"] and
         candles[-3]["high"] > candles[-1]["high"]):
         bearish = True
 
-    if (candles[-3]["low"] < candles[-5]["low"] and 
+    if (candles[-3]["low"] < candles[-5]["low"] and
         candles[-3]["low"] < candles[-4]["low"] and
         candles[-3]["low"] < candles[-2]["low"] and
         candles[-3]["low"] < candles[-1]["low"]):
@@ -588,13 +588,13 @@ def strategy_engulfing(candles):
     prev = candles[-2]
     curr = candles[-1]
 
-    if (prev["close"] < prev["open"] and 
-        curr["open"] < prev["close"] and 
+    if (prev["close"] < prev["open"] and
+        curr["open"] < prev["close"] and
         curr["close"] > prev["open"]):
         return "🟢up"
 
-    elif (prev["close"] > prev["open"] and 
-          curr["open"] > prev["close"] and 
+    elif (prev["close"] > prev["open"] and
+          curr["open"] > prev["close"] and
           curr["close"] < prev["open"]):
         return "🔴down"
 
@@ -606,12 +606,12 @@ def strategy_hammer(candles):
     lower_wick = min(c["close"], c["open"]) - c["low"]
     upper_wick = c["high"] - max(c["close"], c["open"])
 
-    if (lower_wick > body * 2 and 
+    if (lower_wick > body * 2 and
         upper_wick < body * 0.5 and
         c["close"] > c["open"]):
         return "🟢up"
 
-    elif (lower_wick > body * 2 and 
+    elif (lower_wick > body * 2 and
           upper_wick < body * 0.5 and
           c["close"] < c["open"]):
         return "🔴down"
@@ -622,14 +622,14 @@ def strategy_harami(candles):
     prev = candles[-2]
     curr = candles[-1]
 
-    if (prev["close"] < prev["open"] and 
-        curr["open"] > prev["close"] and 
+    if (prev["close"] < prev["open"] and
+        curr["open"] > prev["close"] and
         curr["close"] < prev["open"] and
         curr["close"] > curr["open"]):
         return "🟢up"
 
-    elif (prev["close"] > prev["open"] and 
-          curr["open"] < prev["close"] and 
+    elif (prev["close"] > prev["open"] and
+          curr["open"] < prev["close"] and
           curr["close"] > prev["open"] and
           curr["close"] < curr["open"]):
         return "🔴down"
@@ -831,15 +831,15 @@ def strategy_ichimoku(candles):
     cloud_green = senkou_a > senkou_b
     cloud_red = senkou_a < senkou_b
 
-    if (current > tenkan and 
+    if (current > tenkan and
         current > kijun and
-        ((cloud_green and current > senkou_a) or 
+        ((cloud_green and current > senkou_a) or
          (cloud_red and current > senkou_b))):
         return "🟢up"
 
-    elif (current < tenkan and 
+    elif (current < tenkan and
           current < kijun and
-          ((cloud_green and current < senkou_b) or 
+          ((cloud_green and current < senkou_b) or
            (cloud_red and current < senkou_a))):
         return "🔴down"
 
@@ -1006,20 +1006,20 @@ def generate_telegram_message(candles, signals, votes, decision, prediction):
     chart_pattern = analyze_chart_pattern(candles)
 
     trend_signals = {k:v for k,v in signals.items() if k in [
-        "EMA Crossover", "MACD", "ADX", "Parabolic SAR", "Keltner Channels", 
+        "EMA Crossover", "MACD", "ADX", "Parabolic SAR", "Keltner Channels",
         "TRIX", "Awesome Oscillator", "Supertrend", "Ichimoku"
     ]}
-    
+
     reversal_signals = {k:v for k,v in signals.items() if k in [
         "RSI", "Bollinger Bands", "Stochastic", "CCI", "MFI", "VWAP"
     ]}
-    
+
     pattern_signals = {k:v for k,v in signals.items() if k in [
-        "Wick Rejection", "Engulfing", "Hammer/Hanging Man", "Harami", 
+        "Wick Rejection", "Engulfing", "Hammer/Hanging Man", "Harami",
         "Doji", "Morning Star", "Evening Star", "Pin Bar", "Fakey",
         "3 White Soldiers", "3 Black Crows"
     ]}
-    
+
     smart_money_signals = {k:v for k,v in signals.items() if k in [
         "FVG", "Order Block", "Liquidity Grab", "Mitigation Block", "ICT", "SMC"
     ]}
@@ -1099,4 +1099,4 @@ def health_check():
 
 if __name__ == "__main__":
     threading.Thread(target=run_scheduler).start()
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=7000)
