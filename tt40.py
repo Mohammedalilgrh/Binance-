@@ -108,7 +108,7 @@ def detect_horizontal_levels(candles):
     # Find significant highs and lows
     highs = [c["high"] for c in candles]
     lows = [c["low"] for c in candles]
-    
+
     # Cluster nearby levels (within 0.5% of price)
     def cluster_levels(levels):
         clusters = []
@@ -122,18 +122,18 @@ def detect_horizontal_levels(candles):
             if not found:
                 clusters.append([level])
         return clusters
-    
+
     high_clusters = cluster_levels(highs)
     low_clusters = cluster_levels(lows)
-    
+
     # Sort clusters by importance (number of touches and recentness)
     def score_cluster(cluster):
         recent_weight = sum(1/(len(candles)-i) for i, price in enumerate(highs) if price in cluster)
         return len(cluster) * recent_weight
-    
+
     high_clusters.sort(key=score_cluster, reverse=True)
     low_clusters.sort(key=score_cluster, reverse=True)
-    
+
     # Get top 4 levels (2 from highs, 2 from lows)
     significant_levels = []
     if len(high_clusters) > 0:
@@ -144,7 +144,7 @@ def detect_horizontal_levels(candles):
         significant_levels.append(round(sum(low_clusters[0])/len(low_clusters[0]), 2))
     if len(low_clusters) > 1:
         significant_levels.append(round(sum(low_clusters[1])/len(low_clusters[1]), 2))
-    
+
     # Sort all levels and take top 4 most significant
     significant_levels = sorted(significant_levels, reverse=True)
     return significant_levels[:4]
@@ -152,7 +152,7 @@ def detect_horizontal_levels(candles):
 def analyze_chart_pattern(candles):
     levels = detect_horizontal_levels(candles)
     current_price = candles[-1]["close"]
-    
+
     pattern = ""
     if len(levels) >= 4:
         # Check for ascending/descending channel
@@ -176,7 +176,7 @@ def analyze_chart_pattern(candles):
                         pattern = "Descending Triangle"
                     elif sorted(bottom_levels) == bottom_levels and len(set(top_levels)) == 1:
                         pattern = "Ascending Triangle"
-        
+
         # Check breakout direction
         if pattern:
             if current_price > max(levels):
@@ -185,7 +185,7 @@ def analyze_chart_pattern(candles):
                 pattern += " - Bearish Breakout"
             else:
                 pattern += " - Inside Range"
-    
+
     return {
         "levels": levels,
         "pattern": pattern if pattern else "No Clear Pattern",
@@ -206,10 +206,10 @@ def ict(candles):
 def smc(candles):
     # Smart Money Concept strategy
     # Checks for liquidity grabs and stop hunts
-    if (candles[-2]["low"] < candles[-3]["low"] and 
+    if (candles[-2]["low"] < candles[-3]["low"] and
         candles[-1]["close"] > candles[-3]["high"]):
         return "🟢up"
-    elif (candles[-2]["high"] > candles[-3]["high"] and 
+    elif (candles[-2]["high"] > candles[-3]["high"] and
           candles[-1]["close"] < candles[-3]["low"]):
         return "🔴down"
     return "⚪️neutral"
@@ -233,23 +233,23 @@ def strategy_adx(candles, period=14):
         high = candles[i+1]["high"]
         low = candles[i+1]["low"]
         prev_close = candles[i]["close"]
-        
+
         tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
         tr_sum += tr
-        
+
         plus_dm = high - candles[i]["high"]
         minus_dm = candles[i]["low"] - low
-        
+
         if plus_dm > minus_dm and plus_dm > 0:
             plus_di += 100 * (plus_dm / tr)
         elif minus_dm > plus_dm and minus_dm > 0:
             minus_di += 100 * (minus_dm / tr)
-    
+
     plus_di /= period
     minus_di /= period
     dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di + 1e-9)
     adx = dx / period
-    
+
     if adx > 25 and plus_di > minus_di:
         return "🟢up"
     elif adx > 25 and minus_di > plus_di:
@@ -259,13 +259,13 @@ def strategy_adx(candles, period=14):
 def strategy_parabolic_sar(candles, accel=0.02, max_accel=0.2):
     if len(candles) < 3:
         return "⚪️neutral"
-    
+
     # Initialize
     ep = candles[-3]["high"] if candles[-3]["close"] > candles[-4]["close"] else candles[-3]["low"]
     sar = candles[-3]["low"] if candles[-3]["close"] > candles[-4]["close"] else candles[-3]["high"]
     trend = "up" if candles[-3]["close"] > candles[-4]["close"] else "down"
     accel_factor = accel
-    
+
     # Calculate SAR
     for i in range(-2, 0):
         if trend == "up":
@@ -290,7 +290,7 @@ def strategy_parabolic_sar(candles, accel=0.02, max_accel=0.2):
                 if candles[i]["low"] < ep:
                     ep = candles[i]["low"]
                     accel_factor = min(accel_factor + accel, max_accel)
-    
+
     current_price = candles[-1]["close"]
     return "🟢up" if current_price > sar and trend == "up" else "🔴down" if current_price < sar and trend == "down" else "⚪️neutral"
 
@@ -298,34 +298,34 @@ def strategy_keltner_channels(candles, ema_period=20, atr_period=10, multiplier=
     closes = [c["close"] for c in candles[-ema_period:]]
     ema_val = ema(closes, ema_period)
     atr_val = atr(candles, atr_period)
-    
+
     upper = ema_val + multiplier * atr_val
     lower = ema_val - multiplier * atr_val
-    
+
     current = candles[-1]["close"]
-    return "🟢up" if current > upper else "🔴down" if current < lower else "⚪️neutral"
+    return "🟢up" if current > upper else "🔴down" if current < lower else " ⚪️neutral"
 
 def strategy_trix(candles, period=15):
     closes = [c["close"] for c in candles]
-    
+
     # Triple EMA
     ema1 = ema(closes[-period:], period)
     ema2 = ema([ema(c[:i], period) for i, c in enumerate(closes[-2*period:])], period)
-    ema3 = ema([ema([ema(c[:j], period) for j, c in enumerate(closes[-2*period-i:])], period) 
+    ema3 = ema([ema([ema(c[:j], period) for j, c in enumerate(closes[-2*period-i:])], period)
                for i in range(period)], period)
-    
-    prev_ema3 = ema([ema([ema(c[:j], period) for j, c in enumerate(closes[-2*period-i-1:-1])], period) 
+
+    prev_ema3 = ema([ema([ema(c[:j], period) for j, c in enumerate(closes[-2*period-i-1:-1])], period)
                     for i in range(period)], period)
-    
+
     trix = 100 * (ema3 - prev_ema3) / prev_ema3
     return "🟢up" if trix > 0 else "🔴down" if trix < 0 else "⚪️neutral"
 
 def strategy_awesome_oscillator(candles):
     midpoints = [(c["high"] + c["low"]) / 2 for c in candles[-34:]]
     ao = ema(midpoints[-5:], 5) - ema(midpoints[-34:], 34)
-    
+
     prev_ao = ema(midpoints[-6:-1], 5) - ema(midlines[-35:-1], 34)
-    
+
     if ao > 0 and ao > prev_ao:
         return "🟢up"
     elif ao < 0 and ao < prev_ao:
@@ -372,12 +372,12 @@ def strategy_mfi(candles, period=14):
     for i in range(-period, -1):
         tp = (candles[i]["high"] + candles[i]["low"] + candles[i]["close"]) / 3
         prev_tp = (candles[i-1]["high"] + candles[i-1]["low"] + candles[i-1]["close"]) / 3
-        
+
         if tp > prev_tp:
             positive += tp * candles[i]["volume"]
         else:
             negative += tp * candles[i]["volume"]
-    
+
     if negative == 0: return 100
     mfi = 100 - (100 / (1 + positive / negative))
     return "🟢up" if mfi < 20 else "🔴down" if mfi > 80 else "⚪️neutral"
@@ -392,7 +392,7 @@ def strategy_vwap(candles):
 def strategy_donchian_breakout(candles, period=20):
     upper, lower = donchian_channel(candles, period)
     current = candles[-1]["close"]
-    return "🟢up" if current > upper else "🔴down" if current < lower else "⚪️neutral"
+    return "🟢up" if current > upper else "🔴down" if current < lower else " ⚪️neutral"
 
 def strategy_inside_bar(candles):
     if candles[-1]["high"] < candles[-2]["high"] and candles[-1]["low"] > candles[-2]["low"]:
@@ -423,24 +423,24 @@ def strategy_fractal_breakout(candles):
     # Bullish fractal: low with two higher lows on each side
     if len(candles) < 5:
         return "⚪️neutral"
-    
+
     bearish = False
     bullish = False
-    
+
     # Check for bearish fractal
-    if (candles[-3]["high"] > candles[-5]["high"] and 
+    if (candles[-3]["high"] > candles[-5]["high"] and
         candles[-3]["high"] > candles[-4]["high"] and
         candles[-3]["high"] > candles[-2]["high"] and
         candles[-3]["high"] > candles[-1]["high"]):
         bearish = True
-    
+
     # Check for bullish fractal
-    if (candles[-3]["low"] < candles[-5]["low"] and 
+    if (candles[-3]["low"] < candles[-5]["low"] and
         candles[-3]["low"] < candles[-4]["low"] and
         candles[-3]["low"] < candles[-2]["low"] and
         candles[-3]["low"] < candles[-1]["low"]):
         bullish = True
-    
+
     current = candles[-1]["close"]
     if bullish and current > candles[-3]["high"]:
         return "🟢up"
@@ -475,18 +475,18 @@ def strategy_ultimate_oscillator(candles):
     for i in range(-7, 0):
         bp.append(candles[i]["close"] - min(candles[i]["low"], candles[i-1]["close"]))
         tr.append(max(candles[i]["high"], candles[i-1]["close"]) - min(candles[i]["low"], candles[i-1]["close"]))
-    
+
     avg7 = sum(bp) / sum(tr)
-    
+
     bp = []
     tr = []
     for i in range(-14, 0):
         bp.append(candles[i]["close"] - min(candles[i]["low"], candles[i-1]["close"]))
         tr.append(max(candles[i]["high"], candles[i-1]["close"]) - min(candles[i]["low"], candles[i-1]["close"]))
-    
+
     avg14 = sum(bp[-14:]) / sum(tr[-14:])
     avg28 = sum(bp) / sum(tr)
-    
+
     uo = 100 * (4 * avg7 + 2 * avg14 + avg28) / 7
     return "🟢up" if uo < 30 else "🔴down" if uo > 70 else "⚪️neutral"
 
@@ -497,7 +497,7 @@ def strategy_obv(candles):
             obv += candles[i]["volume"]
         elif candles[i]["close"] < candles[i-1]["close"]:
             obv -= candles[i]["volume"]
-    
+
     # Simple 5-period EMA of OBV
     obv_ema = ema([obv] * 5, 5)  # Simplified for demo
     return "🟢up" if obv_ema > 0 else "🔴down" if obv_ema < 0 else "⚪️neutral"
@@ -522,22 +522,22 @@ def strategy_volume_profile(candles, levels=4):
         high = low + price_step
         vol = sum(c["volume"] for c in candles[-50:] if low <= c["close"] <= high)
         price_ranges.append((low, high, vol))
-    
+
     price_ranges.sort(key=lambda x: x[2], reverse=True)
     current = candles[-1]["close"]
-    
+
     # If price is in high volume node
     for low, high, vol in price_ranges[:2]:
         if low <= current <= high:
             return "⚪️neutral"  # Likely to reverse from this level
-    
+
     # If price is breaking out of low volume node
     for low, high, vol in price_ranges[-2:]:
         if current > high:
             return "🟢up"
         elif current < low:
             return "🔴down"
-    
+
     return "⚪️neutral"
 
 def strategy_accumulation_distribution(candles):
@@ -545,12 +545,12 @@ def strategy_accumulation_distribution(candles):
     for c in candles[-14:]:
         clv = ((c["close"] - c["low"]) - (c["high"] - c["close"])) / (c["high"] - c["low"] + 1e-9)
         ad += clv * c["volume"]
-    
+
     prev_ad = 0
     for c in candles[-15:-1]:
         clv = ((c["close"] - c["low"]) - (c["high"] - c["close"])) / (c["high"] - c["low"] + 1e-9)
         prev_ad += clv * c["volume"]
-    
+
     return "🟢up" if ad > prev_ad else "🔴down" if ad < prev_ad else "⚪️neutral"
 
 # Candlestick Pattern Strategies
@@ -568,19 +568,19 @@ def strategy_wick_rejection(candles):
 def strategy_engulfing(candles):
     prev = candles[-2]
     curr = candles[-1]
-    
+
     # Bullish engulfing
-    if (prev["close"] < prev["open"] and 
-        curr["open"] < prev["close"] and 
+    if (prev["close"] < prev["open"] and
+        curr["open"] < prev["close"] and
         curr["close"] > prev["open"]):
         return "🟢up"
-    
+
     # Bearish engulfing
-    elif (prev["close"] > prev["open"] and 
-          curr["open"] > prev["close"] and 
+    elif (prev["close"] > prev["open"] and
+          curr["open"] > prev["close"] and
           curr["close"] < prev["open"]):
         return "🔴down"
-    
+
     return "⚪️neutral"
 
 def strategy_hammer(candles):
@@ -588,96 +588,96 @@ def strategy_hammer(candles):
     body = abs(c["close"] - c["open"])
     lower_wick = min(c["close"], c["open"]) - c["low"]
     upper_wick = c["high"] - max(c["close"], c["open"])
-    
+
     # Hammer
-    if (lower_wick > body * 2 and 
+    if (lower_wick > body * 2 and
         upper_wick < body * 0.5 and
         c["close"] > c["open"]):
         return "🟢up"
 
     # Hanging man
-    elif (lower_wick > body * 2 and 
+    elif (lower_wick > body * 2 and
           upper_wick < body * 0.5 and
           c["close"] < c["open"]):
         return "🔴down"
-    
+
     return "⚪️neutral"
 
 def strategy_harami(candles):
     prev = candles[-2]
     curr = candles[-1]
-    
+
     # Bullish harami
-    if (prev["close"] < prev["open"] and 
-        curr["open"] > prev["close"] and 
+    if (prev["close"] < prev["open"] and
+        curr["open"] > prev["close"] and
         curr["close"] < prev["open"] and
         curr["close"] > curr["open"]):
         return "🟢up"
-    
+
     # Bearish harami
-    elif (prev["close"] > prev["open"] and 
-          curr["open"] < prev["close"] and 
+    elif (prev["close"] > prev["open"] and
+          curr["open"] < prev["close"] and
           curr["close"] > prev["open"] and
           curr["close"] < curr["open"]):
         return "🔴down"
-    
+
     return "⚪️neutral"
 
 def strategy_doji(candles):
     c = candles[-1]
     body = abs(c["close"] - c["open"])
     avg_range = sum(abs(c["close"] - c["open"]) for c in candles[-14:]) / 14
-    
+
     # Standard doji
     if body < avg_range * 0.1:
         return "⚪️neutral"  # Indecision
-    
+
     # Dragonfly doji (bullish)
     elif (body < avg_range * 0.1 and
           c["high"] - max(c["close"], c["open"]) < avg_range * 0.1 and
           min(c["close"], c["open"]) - c["low"] > avg_range * 0.5):
         return "🟢up"
-    
+
     # Gravestone doji (bearish)
     elif (body < avg_range * 0.1 and
           min(c["close"], c["open"]) - c["low"] < avg_range * 0.1 and
           c["high"] - max(c["close"], c["open"]) > avg_range * 0.5):
         return "🔴down"
-    
+
     return "⚪️neutral"
 
 def strategy_morning_star(candles):
     if len(candles) < 3:
         return "⚪️neutral"
-    
+
     first = candles[-3]
     second = candles[-2]
     third = candles[-1]
-    
+
     # Morning star pattern
     if (first["close"] < first["open"] and
         abs(second["close"] - second["open"]) < (first["close"] - first["open"]) * 0.3 and
         third["close"] > third["open"] and
         third["close"] > first["open"]):
         return "🟢up"
-    
+
     return "⚪️neutral"
 
 def strategy_evening_star(candles):
     if len(candles) < 3:
         return "⚪️neutral"
-    
+
     first = candles[-3]
     second = candles[-2]
     third = candles[-1]
-    
+
     # Evening star pattern
     if (first["close"] > first["open"] and
         abs(second["close"] - second["open"]) < (first["close"] - first["open"]) * 0.3 and
         third["close"] < third["open"] and
         third["close"] < first["open"]):
         return "🔴down"
-    
+
     return "⚪️neutral"
 
 # Price Action Strategies
@@ -686,47 +686,47 @@ def strategy_pin_bar(candles):
     body = abs(c["close"] - c["open"])
     upper_wick = c["high"] - max(c["close"], c["open"])
     lower_wick = min(c["close"], c["open"]) - c["low"]
-    
+
     # Bullish pin bar
     if (lower_wick > body * 2 and
         upper_wick < body * 0.5 and
         c["close"] > c["open"]):
         return "🟢up"
-    
+
     # Bearish pin bar
     elif (upper_wick > body * 2 and
           lower_wick < body * 0.5 and
           c["close"] < c["open"]):
         return "🔴down"
-    
+
     return "⚪️neutral"
 
 def strategy_fakey(candles):
     if len(candles) < 4:
         return "⚪️neutral"
-    
+
     # Bullish fakey (false breakout below support)
     if (candles[-3]["close"] < candles[-3]["open"] and  # Bearish bar
         candles[-2]["high"] < candles[-3]["low"] and    # Break below
         candles[-1]["close"] > candles[-3]["high"]):    # Close back above
         return "🟢up"
-    
+
     # Bearish fakey (false breakout above resistance)
     elif (candles[-3]["close"] > candles[-3]["open"] and  # Bullish bar
           candles[-2]["low"] > candles[-3]["high"] and     # Break above
           candles[-1]["close"] < candles[-3]["low"]):       # Close back below
         return "🔴down"
-    
+
     return "⚪️neutral"
 
 def strategy_three_white_soldiers(candles):
     if len(candles) < 3:
         return "⚪️neutral"
-    
+
     first = candles[-3]
     second = candles[-2]
     third = candles[-1]
-    
+
     # Three white soldiers pattern
     if (first["close"] > first["open"] and
         second["close"] > second["open"] and
@@ -737,17 +737,17 @@ def strategy_three_white_soldiers(candles):
         first["close"] < second["open"] and
         second["close"] < third["open"]):
         return "🟢up"
-    
+
     return "⚪️neutral"
 
 def strategy_three_black_crows(candles):
     if len(candles) < 3:
         return "⚪️neutral"
-    
+
     first = candles[-3]
     second = candles[-2]
     third = candles[-1]
-    
+
     # Three black crows pattern
     if (first["close"] < first["open"] and
         second["close"] < second["open"] and
@@ -758,35 +758,35 @@ def strategy_three_black_crows(candles):
         first["close"] > second["open"] and
         second["close"] > third["open"]):
         return "🔴down"
-    
+
     return "⚪️neutral"
 
 # Advanced Strategies
 def strategy_heikin_ashi(candles):
     ha = heikin_ashi(candles)
     prev_ha = heikin_ashi(candles[:-1])
-    
+
     # Bullish trend (green candles with little lower wick)
     if (ha["close"] > ha["open"] and
         (ha["close"] - ha["open"]) > (ha["high"] - ha["close"]) * 2):
         return "🟢up"
-    
+
     # Bearish trend (red candles with little upper wick)
     elif (ha["close"] < ha["open"] and
           (ha["open"] - ha["close"]) > (ha["close"] - ha["low"]) * 2):
         return "🔴down"
-    
+
     # Reversal signals
     elif (prev_ha["close"] < prev_ha["open"] and
           ha["close"] > ha["open"] and
           ha["close"] > prev_ha["open"]):
         return "🟢up"
-    
+
     elif (prev_ha["close"] > prev_ha["open"] and
           ha["close"] < ha["open"] and
           ha["close"] < prev_ha["open"]):
         return "🔴down"
-    
+
     return "⚪️neutral"
 
 def strategy_volume_weighted_ma(candles, period=20):
@@ -795,7 +795,7 @@ def strategy_volume_weighted_ma(candles, period=20):
     for c in candles[-period:]:
         vwma_numerator += c["close"] * c["volume"]
         vwma_denominator += c["volume"]
-    
+
     vwma = vwma_numerator / vwma_denominator
     return "🟢up" if candles[-1]["close"] > vwma else "🔴down"
 
@@ -803,10 +803,10 @@ def strategy_supertrend(candles, factor=3, period=10):
     a = atr(candles, period)
     mid = (candles[-1]['high'] + candles[-1]['low']) / 2
     close = candles[-1]['close']
-    
+
     upper = mid + factor * a
     lower = mid - factor * a
-    
+
     # Determine trend direction
     if close > upper:
         return "🟢up"
@@ -818,40 +818,40 @@ def strategy_ichimoku(candles):
     highs9 = max(c["high"] for c in candles[-9:])
     lows9 = min(c["low"] for c in candles[-9:])
     tenkan = (highs9 + lows9) / 2
-    
+
     highs26 = max(c["high"] for c in candles[-26:])
     lows26 = min(c["low"] for c in candles[-26:])
     kijun = (highs26 + lows26) / 2
-    
+
     # Senkou Span A (leading span A)
     senkou_a = (tenkan + kijun) / 2
-    
+
     # Senkou Span B (leading span B)
     highs52 = max(c["high"] for c in candles[-52:])
     lows52 = min(c["low"] for c in candles[-52:])
     senkou_b = (highs52 + lows52) / 2
-    
+
     # Current price position
     current = candles[-1]["close"]
-    
+
     # Cloud color
     cloud_green = senkou_a > senkou_b
     cloud_red = senkou_a < senkou_b
-    
+
     # Bullish signals
-    if (current > tenkan and 
+    if (current > tenkan and
         current > kijun and
-        (cloud_green and current > senkou_a) or 
+        (cloud_green and current > senkou_a) or
         (cloud_red and current > senkou_b)):
         return "🟢up"
-    
+
     # Bearish signals
-    elif (current < tenkan and 
+    elif (current < tenkan and
           current < kijun and
-          (cloud_green and current < senkou_b) or 
+          (cloud_green and current < senkou_b) or
           (cloud_red and current < senkou_a)):
         return "🔴down"
-    
+
     return "⚪️neutral"
 
 # Smart Money Concepts
@@ -870,53 +870,53 @@ def strategy_ob(candles):
 def strategy_liquidity_grab(candles):
     if len(candles) < 5:
         return "⚪️neutral"
-    
+
     # Bullish liquidity grab (stop hunt below recent low)
     if (candles[-2]["low"] < min(c["low"] for c in candles[-5:-2]) and
         candles[-1]["close"] > max(c["high"] for c in candles[-5:-2])):
         return "🟢up"
-    
+
     # Bearish liquidity grab (stop hunt above recent high)
     elif (candles[-2]["high"] > max(c["high"] for c in candles[-5:-2]) and
           candles[-1]["close"] < min(c["low"] for c in candles[-5:-2])):
         return "🔴down"
-    
+
     return "⚪️neutral"
 
 def strategy_mitigation_block(candles):
     if len(candles) < 4:
         return "⚪️neutral"
-    
+
     # Bullish mitigation (price returns to break even after stop run)
     if (candles[-3]["close"] < candles[-3]["open"] and  # Bearish candle
         candles[-2]["low"] < candles[-3]["low"] and     # Stop run
         candles[-1]["close"] > candles[-3]["open"]):    # Back above open
         return "🟢up"
-    
+
     # Bearish mitigation
     elif (candles[-3]["close"] > candles[-3]["open"] and  # Bullish candle
           candles[-2]["high"] > candles[-3]["high"] and    # Stop run
           candles[-1]["close"] < candles[-3]["open"]):     # Back below open
         return "🔴down"
-    
+
     return "⚪️neutral"
 
 # Multi-Timeframe Strategies
 def strategy_higher_timeframe_confirmation(candles):
     # Get 5-minute candles for higher timeframe confirmation
     higher_tf_candles = get_candles(interval=Client.KLINE_INTERVAL_5MINUTE)
-    
+
     if len(higher_tf_candles) < 10:
         return "⚪️neutral"
-    
+
     # Check if higher timeframe is bullish
     higher_tf_bullish = (higher_tf_candles[-1]["close"] > higher_tf_candles[-1]["open"] and
                          higher_tf_candles[-1]["close"] > ema([c["close"] for c in higher_tf_candles[-20:]], 20))
-    
+
     # Check if higher timeframe is bearish
     higher_tf_bearish = (higher_tf_candles[-1]["close"] < higher_tf_candles[-1]["open"] and
                          higher_tf_candles[-1]["close"] < ema([c["close"] for c in higher_tf_candles[-20:]], 20))
-    
+
     # Only trade in direction of higher timeframe
     current_strategy = strategy_ema_cross(candles)
     if higher_tf_bullish and current_strategy == "🟢up":
@@ -936,7 +936,7 @@ def run_all_strategies(candles):
         "Keltner Channels": strategy_keltner_channels(candles),
         "TRIX": strategy_trix(candles),
         "Awesome Oscillator": strategy_awesome_oscillator(candles),
-        
+
         # Mean Reversion
         "RSI": strategy_rsi(candles),
         "Bollinger Bands": strategy_bollinger(candles),
@@ -944,27 +944,27 @@ def run_all_strategies(candles):
         "CCI": strategy_cci(candles),
         "MFI": strategy_mfi(candles),
         "VWAP": strategy_vwap(candles),
-        
+
         # Breakout
         "Donchian Breakout": strategy_donchian_breakout(candles),
         "Inside Bar": strategy_inside_bar(candles),
         "Break+Retest": strategy_break_retest(candles),
         "High/Low Breakout": strategy_high_low_breakout(candles),
         "Fractal Breakout": strategy_fractal_breakout(candles),
-        
+
         # Momentum
         "Momentum": strategy_momentum(candles),
         "ROC": strategy_roc(candles),
         "Williams %R": strategy_williams_r(candles),
         "Ultimate Oscillator": strategy_ultimate_oscillator(candles),
         "OBV": strategy_obv(candles),
-        
+
         # Volume
         "Volume Spike": strategy_volume_spike(candles),
         "VWAP+MACD Combo": strategy_vwap_macd_combo(candles),
         "Volume Profile": strategy_volume_profile(candles),
         "Accumulation/Distribution": strategy_accumulation_distribution(candles),
-        
+
         # Candlestick Patterns
         "Wick Rejection": strategy_wick_rejection(candles),
         "Engulfing": strategy_engulfing(candles),
@@ -977,22 +977,22 @@ def run_all_strategies(candles):
         "Fakey": strategy_fakey(candles),
         "3 White Soldiers": strategy_three_white_soldiers(candles),
         "3 Black Crows": strategy_three_black_crows(candles),
-        
+
         # Price Action
         "Heikin Ashi": strategy_heikin_ashi(candles),
         "VWMA": strategy_volume_weighted_ma(candles),
         "Supertrend": strategy_supertrend(candles),
         "Ichimoku": strategy_ichimoku(candles),
-        
+
         # Smart Money Concepts
         "FVG": strategy_fvg(candles),
         "Order Block": strategy_ob(candles),
         "Liquidity Grab": strategy_liquidity_grab(candles),
         "Mitigation Block": strategy_mitigation_block(candles),
-        
+
         # Multi-Timeframe
         "HTF Confirmation": strategy_higher_timeframe_confirmation(candles),
-        
+
         # Core Strategies
         "ICT": ict(candles),
         "SMC": smc(candles)
@@ -1024,20 +1024,20 @@ def generate_telegram_message(candles, signals, votes, decision, prediction):
 
     # Group signals by category for better readability
     trend_signals = {k:v for k,v in signals.items() if k in [
-        "EMA Crossover", "MACD", "ADX", "Parabolic SAR", "Keltner Channels", 
+        "EMA Crossover", "MACD", "ADX", "Parabolic SAR", "Keltner Channels",
         "TRIX", "Awesome Oscillator", "Supertrend", "Ichimoku"
     ]}
-    
+
     reversal_signals = {k:v for k,v in signals.items() if k in [
         "RSI", "Bollinger Bands", "Stochastic", "CCI", "MFI", "VWAP"
     ]}
-    
+
     pattern_signals = {k:v for k,v in signals.items() if k in [
-        "Wick Rejection", "Engulfing", "Hammer/Hanging Man", "Harami", 
+        "Wick Rejection", "Engulfing", "Hammer/Hanging Man", "Harami",
         "Doji", "Morning Star", "Evening Star", "Pin Bar", "Fakey",
         "3 White Soldiers", "3 Black Crows"
     ]}
-    
+
     smart_money_signals = {k:v for k,v in signals.items() if k in [
         "FVG", "Order Block", "Liquidity Grab", "Mitigation Block", "ICT", "SMC"
     ]}
@@ -1046,37 +1046,37 @@ def generate_telegram_message(candles, signals, votes, decision, prediction):
     msg += f"🧠 *Majority Decision*: {decision} (🟢{votes['🟢up']} | 🔴{votes['🔴down']} | ⚪️{votes['⚪️neutral']})\n"
     msg += f"📈 *15-Candle Forecast*: {prediction}\n"
     msg += f"🎯 *Entry*: `{entry:.2f}` | 🛑 SL: `{stop_loss}` | 🎯 TP (Fib 1.618): `{fib_tp}`\n\n"
-    
+
     # Add trend signals
     msg += "📈 *Trend Signals*\n"
     for name, signal in trend_signals.items():
         if signal != "⚪️neutral":
             msg += f"• {name}: {signal}\n"
-    
+
     # Add reversal signals
     msg += "\n🔄 *Reversal Signals*\n"
     for name, signal in reversal_signals.items():
         if signal != "⚪️neutral":
             msg += f"• {name}: {signal}\n"
-    
+
     # Add pattern signals
     msg += "\n🕯️ *Candle Patterns*\n"
     for name, signal in pattern_signals.items():
         if signal != "⚪️neutral":
             msg += f"• {name}: {signal}\n"
-    
+
     # Add smart money signals
     msg += "\n💡 *Smart Money Signals*\n"
     for name, signal in smart_money_signals.items():
         if signal != "⚪️neutral":
             msg += f"• {name}: {signal}\n"
-    
+
     if ob:
         msg += f"\n🧱 OB: {ob['type']} @ {ob['price']:.2f}"
     if fvg:
         zone = fvg["zone"]
         msg += f"\n📐 FVG: {fvg['type']} Zone {zone[0]:.2f} → {zone[1]:.2f}"
-    
+
     # Add chart pattern analysis
     msg += f"\n\n📉 *Chart Pattern Analysis*:"
     if len(chart_pattern["levels"]) >= 4:
@@ -1122,4 +1122,4 @@ def health_check():
 
 if __name__ == "__main__":
     threading.Thread(target=run_scheduler).start()
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=8000)
