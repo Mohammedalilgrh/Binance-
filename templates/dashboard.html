@@ -1,0 +1,170 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMM Agent Dashboard - Bot Management</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Arial', sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .header { text-align: center; color: white; margin-bottom: 30px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; border-radius: 15px; padding: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); text-align: center; }
+        .stat-number { font-size: 2.5em; font-weight: bold; color: #667eea; }
+        .stat-label { color: #666; margin-top: 10px; }
+        .bot-panel { background: white; border-radius: 15px; padding: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); margin-bottom: 20px; }
+        .add-bot-form { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 15px; align-items: end; margin-bottom: 20px; }
+        .add-bot-form input, .add-bot-form select { padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 16px; }
+        .add-bot-form button { padding: 15px 30px; background: linear-gradient(45deg, #667eea, #764ba2); color: white; border: none; border-radius: 8px; cursor: pointer; }
+        .bot-list { max-height: 400px; overflow-y: auto; }
+        .bot-item { padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .platform-badge { padding: 5px 15px; border-radius: 20px; color: white; font-size: 0.8em; font-weight: bold; }
+        .instagram { background: #E4405F; }
+        .tiktok { background: #000; }
+        .youtube { background: #FF0000; }
+        .telegram { background: #0088CC; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 SMM Agent Dashboard</h1>
+            <p>Manage Your Bot Army - Unlimited Accounts</p>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number" id="total-bots">0</div>
+                <div class="stat-label">Total Bot Accounts</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="active-orders">0</div>
+                <div class="stat-label">Active Orders</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="completed-orders">0</div>
+                <div class="stat-label">Completed Orders</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">100%</div>
+                <div class="stat-label">Success Rate</div>
+            </div>
+        </div>
+
+        <div class="bot-panel">
+            <h3>➕ Add New Bot Account</h3>
+            <div class="add-bot-form">
+                <select id="platform-select">
+                    <option value="instagram">Instagram</option>
+                    <option value="tiktok">TikTok</option>
+                    <option value="youtube">YouTube</option>
+                    <option value="telegram">Telegram</option>
+                </select>
+                <input type="text" id="username-input" placeholder="Username/Email">
+                <input type="password" id="password-input" placeholder="Password">
+                <button onclick="addBot()">Add Bot</button>
+            </div>
+
+            <h3>🤖 Bot Accounts</h3>
+            <div class="bot-list" id="bot-list">
+                <p>Loading bot accounts...</p>
+            </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 30px;">
+            <a href="/" style="color: white; text-decoration: none; background: rgba(255,255,255,0.2); padding: 15px 30px; border-radius: 25px;">← Back to Services</a>
+        </div>
+    </div>
+
+    <script>
+        async function loadStats() {
+            try {
+                const botsResponse = await fetch('/api/bots');
+                const bots = await botsResponse.json();
+                document.getElementById('total-bots').textContent = bots.length;
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        async function loadBots() {
+            try {
+                const response = await fetch('/api/bots');
+                const bots = await response.json();
+                
+                const botList = document.getElementById('bot-list');
+                if (bots.length === 0) {
+                    botList.innerHTML = '<p>No bot accounts added yet.</p>';
+                    return;
+                }
+
+                let html = '';
+                bots.forEach(bot => {
+                    html += `
+                        <div class="bot-item">
+                            <div>
+                                <span class="platform-badge ${bot.platform}">${bot.platform.toUpperCase()}</span>
+                                <strong>${bot.username}</strong>
+                            </div>
+                            <div>
+                                <span style="color: #28a745;">●</span> Active
+                            </div>
+                        </div>
+                    `;
+                });
+                botList.innerHTML = html;
+            } catch (error) {
+                console.error('Error loading bots:', error);
+            }
+        }
+
+        async function addBot() {
+            const platform = document.getElementById('platform-select').value;
+            const username = document.getElementById('username-input').value;
+            const password = document.getElementById('password-input').value;
+
+            if (!username || !password) {
+                alert('Please fill in all fields!');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/bots/add', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        platform: platform,
+                        username: username,
+                        password: password
+                    })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('username-input').value = '';
+                    document.getElementById('password-input').value = '';
+                    loadBots();
+                    loadStats();
+                    alert('Bot account added successfully!');
+                } else {
+                    alert('Error adding bot: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Error adding bot: ' + error.message);
+            }
+        }
+
+        // Load data on page load
+        loadStats();
+        loadBots();
+
+        // Auto-refresh every 30 seconds
+        setInterval(() => {
+            loadStats();
+            loadBots();
+        }, 30000);
+    </script>
+</body>
+</html>
